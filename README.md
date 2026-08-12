@@ -1,15 +1,91 @@
-# Context Doctor — DSH 上下文注入审计插件
+<h1 align="center">Context Doctor</h1>
 
-> 审计"模型每个请求到底背着多少上下文"，找出重复、冲突与浪费 token 的注入物，给出可执行的裁剪建议。**全程只读，不修改任何文件。**
+<p align="center">
+  <strong>DSH 上下文注入审计插件：看清模型每个请求到底背着多少上下文，找出重复、冲突与浪费 token 的注入物。</strong>
+</p>
 
-## 两种形态（v0.2）
+<p align="center">
+  <strong>全程只读</strong> ·
+  <strong>token 成本逐项量化</strong> ·
+  <strong>可执行裁剪建议</strong>
+</p>
 
-1. **Web UI 圆环面板**（composer 发送框旁）：圆环显示"常驻注入"估算 token（指令链 + 技能 catalog + 工具 schema），颜色按严重度分级（绿 <10k / 黄 <30k / 红 ≥30k）；点击展开分项明细（指令链 / 技能 catalog / 工具 schema / MCP）+ 建议列表 + 手动刷新。数据经 `GET /api/context-doctor/audit`（host 侧 60s 缓存）拉取。
+<p align="center">
+  <a href="LICENSE"><img alt="License BSD-3-Clause" src="https://img.shields.io/badge/License-BSD%203--Clause-blue.svg?style=for-the-badge"></a>
+  <a href="https://github.com/dsh-external/context-doctor/releases"><img alt="Version 0.2.0" src="https://img.shields.io/badge/Version-0.2.0-green.svg?style=for-the-badge"></a>
+  <a href="https://github.com/deepseek-ai/awesome-deepseek-agent"><img alt="For DeepSeek Harness" src="https://img.shields.io/badge/For-DeepSeek%20Harness-8257D0.svg?style=for-the-badge"></a>
+</p>
+
+<p align="center">
+  <a href="#why">为什么</a> ·
+  <a href="#quick-start">快速安装</a> ·
+  <a href="#agent-setup">Agent 安装</a> ·
+  <a href="#它能做什么">功能</a> ·
+  <a href="#使用">使用</a> ·
+  <a href="#faq">FAQ</a> ·
+  <a href="#license">License</a>
+</p>
+
+<p align="center">
+  <img src="docs/assets/ring-panel.png" alt="Context Doctor 圆环面板示意" width="46%" />
+</p>
+
+## Why
+
+DSH 会话里，模型每个请求都自动携带一批注入物：层层叠加的 `AGENTS.md` 指令链、一百多个技能的目录摘要、几十个工具 schema、MCP 工具面。它们悄悄消耗输入 token，且经常出现跨文件重复段落、同名技能互相遮蔽、工具面膨胀——但平时没人量化，问题到上下文告警时才暴露。
+
+| 之前 | 之后 |
+|---|---|
+| 只能靠上下文计量条猜个大概，说不清是谁在消耗 | 指令链 / 技能 catalog / 工具 schema / MCP 四项逐项给出 token 估算 |
+| 重复指令、重复技能描述散落在各层文件里，无人察觉 | 自动检测跨文件完全相同的重复段落、描述完全相同的冗余技能 |
+| 同名技能多来源并存时被静默遮蔽，模型用的是哪个要靠猜 | 报告冲突胜出者与被遮蔽者（rank shadow） |
+| 看到告警只能手工翻文件找线索 | 模型可直接调用 `context_audit` 拿到分节报告与按严重度排序的裁剪建议 |
+
+## Quick Start
+
+```sh
+# 1. 安装（官方 bundle 插件机制；构建产物已入库，git 源安装无需构建）
+dsh plugin --profile web add "github:dsh-external/context-doctor#main"
+
+# 2. 验证合成树含该条目
+dsh --profile web --dump-config | grep context-doctor
+
+# 3. 重启 dsh web，在新会话里让模型调用
+context_audit
+```
+
+预期成功信号：
+
+```text
+dsh --profile web --dump-config | grep context-doctor
+# - insert:
+#     - id: context-doctor
+#       name: '@dsh-external/context-doctor'
+```
+
+重启后 composer 发送框旁出现圆环面板，或模型调用 `context_audit` 返回分节报告，即安装成功。
+
+## Agent Setup
+
+把下面这段发给 Codex、Claude Code、Cursor 或 DSH 里的任意 agent：
+
+```text
+请阅读 https://github.com/dsh-external/context-doctor/blob/main/agent-setup.md
+并按照步骤帮我安装和配置 Context Doctor（DSH 上下文注入审计插件）。
+目标：装好后我能在 dsh web 里看到圆环面板，并能让模型调用 context_audit。
+修改文件、使用凭据、发布或运行破坏性命令前，先给我看计划并征得同意。
+```
+
+完整安装、验证与排障见 [agent-setup.md](agent-setup.md)。
+
+## 它能做什么
+
+### 两种形态
+
+1. **Web UI 圆环面板**（composer 发送框旁）：圆环显示"常驻注入"估算 token（指令链 + 技能 catalog + 工具 schema），颜色按严重度分级（绿 &lt;10k / 黄 &lt;30k / 红 ≥30k）；点击展开分项明细（指令链 / 技能 catalog / 工具 schema / MCP）+ 建议列表 + 手动刷新。数据经 `GET /api/context-doctor/audit`（host 侧 60s 缓存）拉取。
 2. **`context_audit` 模型工具**：完整审计报告（含 rank shadow 冲突与按严重度排序的建议），模型可自主调用并执行建议。
 
-## 它审计什么
-
-DSH 会话里，模型每个请求都携带一批常驻注入物。Context Doctor 逐项量化：
+### 审计内容
 
 | 注入物 | 审计内容 | 成本性质 |
 |---|---|---|
@@ -21,25 +97,9 @@ DSH 会话里，模型每个请求都携带一批常驻注入物。Context Docto
 
 **冲突检测**：同名技能多来源并存时（如项目技能 shadow 掉 bundled 技能），报告哪个胜出、哪些被静默遮蔽。
 
-## 安装
-
-```sh
-# 1. 从 GitHub 仓库安装（官方 bundle 插件机制；构建产物已入库，git 源安装直接可用）
-dsh plugin --profile web add "github:dsh-external/context-doctor#main"
-# 验证：dsh --profile web --dump-config | grep context-doctor  # 合成树应含该条目
-
-# 2. 重启 dsh web（或等待 HMR 热载），新会话中：
-#    - 模型工具 `context_audit` 可用
-#    - composer 发送框旁出现 Context Doctor 圆环（点击展开面板）
-```
-
-> 浏览器半区（`dsh.client`）需要宿主在激活时校验构建产物；改完源码后必须重新 `pnpm run build` 再重启 `dsh web`。
-
-无 Web 半区（纯 host 插件），不需要 `dsh.client` 声明；卸载即净，不写入 DSH 内核。
-
 ## 使用
 
-模型直接调用工具即可：
+模型直接调用工具：
 
 ```
 context_audit            # 审计当前会话工作目录
@@ -67,6 +127,43 @@ context_audit includeSkillBodies=true maxSkillBodies=20
 
 Native 渲染为分节可读报告（指令链 / 技能 / 工具 / 冲突 / 建议），模型可直接照建议执行裁剪。
 
+## 配置
+
+```yaml
+context-doctor:
+  defaultCwd: /path/to/project   # 浏览器面板不带 cwd 参数时的默认审计目录（缺省为进程启动目录）
+  cacheTtlMs: 60000              # 审计结果缓存时长（毫秒）
+```
+
+## 安全边界
+
+- **只读**：只用 `ctx.fs` 的 read/stat/list 子集，不写不删；不执行任何审计对象。
+- **大小上限**：单文件 > 256 KB 跳过，防止审计器自身被拖垮。
+- **不输出正文**：报告只含路径、统计与重复段落片段，不含完整文件内容；技能正文仅统计 token 总量。
+- **token 为启发式估算**（ASCII ≈ 4 字符/token，中文 ≈ 1.5 字符/token），用于相对比较，精确值以模型 tokenizer 为准。
+
+## FAQ
+
+**装了之后圆环没出现？**
+
+重启 `dsh web` 后看新会话的 composer；仍没有则先确认 `dsh --profile web --dump-config` 含 context-doctor 条目，且浏览器半区构建产物存在（改过源码必须重新 `pnpm run build`）。
+
+**审计结果和计量条对不上？**
+
+计量条是模型侧的实际 token；本插件的 token 是启发式估算（ASCII ≈ 4 字符/token，中文 ≈ 1.5 字符/token），用于相对比较与优化优先级排序，精确值以模型 tokenizer 为准。
+
+**插件会修改我的文件吗？**
+
+不会。审计路径全程只读：只用 `ctx.fs` 的 read/stat/list 子集，不写、不删、不执行任何审计对象。
+
+**MCP 工具怎么分组统计的？**
+
+按 `mcp__<server>__<tool>` 命名解析出服务器名，按服务器汇总工具数与 schema token，用于识别工具面膨胀。
+
+**私密文件会被读进报告吗？**
+
+报告只含路径、统计与重复段落片段，不含完整文件内容；技能正文仅统计 token 总量，不输出正文。
+
 ## 开发
 
 ```sh
@@ -77,23 +174,21 @@ pnpm run build       # tsc + tsdown（host + client 双半区）→ lib/
 
 测试 22 个用例：token 估算、重复块/描述检测、rank shadow、MCP 分组、指令链端到端（真实临时文件系统 + fake FileSystem）、插件入口与完整 execute 报告链路、HTTP 路由（方法检查 + 真实审计响应）。
 
-## 安全边界
-
-- **只读**：只用 `ctx.fs` 的 read/stat/list 子集，不写不删；不执行任何审计对象。
-- **大小上限**：单文件 > 256 KB 跳过，防止审计器自身被拖垮。
-- **不输出正文**：报告只含路径、统计与重复段落片段，不含完整文件内容；技能正文仅统计 token 总量。
-- **token 为启发式估算**（ASCII ≈ 4 字符/token，中文 ≈ 1.5 字符/token），用于相对比较，精确值以模型 tokenizer 为准。
-
-## 验收清单
-
-- [ ] `pnpm run build` 通过，产出 `lib/index.js` + `lib/types/`
-- [ ] `pnpm test` 21/21 通过
-- [ ] `dsh plugin --profile web add link:<本目录>` 安装成功
-- [ ] 新会话中调用 `context_audit` 得到分节报告，模型可见 `injected` 四项统计与 `suggestions`
-- [ ] 报告中的重复段落/冗余技能与真实情况一致（可用 `includeSkillBodies=true` 交叉验证）
-
-## 已知限制（v0.1）
+## 已知限制（v0.2）
 
 - 指令链重复检测只做"完全相同的段落块"，不做语义相似度；跨文件引用同一事实的不同表述暂不识别。
 - MCP 工具 schema 按 `name + description` 估算，未计入 JSON Schema 参数细节。
 - 技能正文统计默认关闭（加载正文有成本），catalog 摘要成本始终统计。
+
+## Acknowledgements
+
+- [DeepSeek Harness](https://github.com/dsh2026/test-Zhenyu98) — 插件运行平台与官方 bundle 插件机制
+- [plugin-registry](https://github.com/dsh-external/plugin-registry) — 插件开发规范与 make-dsh-plugin 引导
+
+## Contributing
+
+Issues 与 pull requests 都欢迎。请保持报告具体、附上复现步骤，并在日志与截图中避免包含密钥。
+
+## License
+
+本项目以 BSD-3-Clause 协议发布，见 [LICENSE](LICENSE)。
