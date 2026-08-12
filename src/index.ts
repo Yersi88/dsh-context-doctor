@@ -67,16 +67,20 @@ export function apply(ctx: Context, config: Config = {}): void {
     },
   }))
 
-  // 2. HTTP 路由（浏览器圆环面板的数据通道）
+  // 2. HTTP 路由（浏览器圆环面板的数据通道）。httpServer 是可选能力：
+  //    有 web 服务时注册（浏览器半区数据源），headless/CLI 环境没有该服务
+  //    时自动跳过，context_audit 工具不受影响。
   const routes = makeAuditRoutes({
     deps,
     ...(config.defaultCwd !== undefined ? { defaultCwd: config.defaultCwd } : {}),
     ...(config.cacheTtlMs !== undefined ? { cacheTtlMs: config.cacheTtlMs } : {}),
   })
-  ctx.effect(() => {
-    const disposers = routes.map((route) => ctx.httpServer.register(route))
-    return () => {
-      for (const dispose of disposers) dispose()
-    }
-  }, 'context-doctor: routes')
+  ctx.inject(['httpServer'], (httpCtx) => {
+    httpCtx.effect(() => {
+      const disposers = routes.map((route) => httpCtx.httpServer.register(route))
+      return () => {
+        for (const dispose of disposers) dispose()
+      }
+    }, 'context-doctor: routes')
+  })
 }

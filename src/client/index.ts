@@ -28,16 +28,24 @@ export type BakedAuditActions = BakedActions<AuditUiState, AuditUiActions>
 export type { AuditInjected, ContextAuditRingProps } from './ContextAuditRing.tsx'
 export type { AuditUiState } from './store.ts'
 
+/** 当前 in-flight 请求的取消控制器：新请求先取消旧请求（避免乱序覆盖）。 */
+let currentController: AbortController | null = null
+
 /** Fetch the host audit report into the store. */
 function fetchReport(actions: BakedAuditActions | null): void {
+  currentController?.abort()
+  const controller = new AbortController()
+  currentController = controller
   actions?.setState('loading', null)
-  fetch(AUDIT_API).then((response) => {
+  fetch(AUDIT_API, { signal: controller.signal }).then((response) => {
     if (!response.ok) throw new Error(`audit ${response.status}`)
     return response.json() as Promise<{ ok: boolean; report: AuditUiState['report'] }>
   }).then((data) => {
+    if (controller.signal.aborted) return
     if (data.ok && data.report !== null && data.report !== undefined) actions?.setReport(data.report)
     else actions?.setState('error', 'empty audit response')
-  }, () => {
+  }, (error: unknown) => {
+    if (controller.signal.aborted) return
     actions?.setState('error', 'audit transport error')
   })
 }

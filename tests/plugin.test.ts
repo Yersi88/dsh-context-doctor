@@ -45,6 +45,8 @@ function makeCtx(workspaceDir: string, skills: unknown[] = [], toolSchemas: unkn
       register: () => () => {},
     },
     effect: (fn: () => unknown) => fn(),
+    inject: (_name: string, fn: (httpCtx: { httpServer: unknown; effect: (f: unknown) => unknown }) => unknown) =>
+      fn({ httpServer: { register: () => () => {} }, effect: (f: unknown) => (f as () => unknown)() }),
     toolsRegistered: [] as unknown[],
     register: function (def: unknown) { this.toolsRegistered.push(def) },
   }
@@ -65,6 +67,18 @@ test('插件入口：apply 注册 context_audit 工具', () => {
   assert.ok('cwd' in tool.parameters.properties)
   assert.ok('includeSkillBodies' in tool.parameters.properties)
   assert.equal(typeof tool.execute, 'function')
+})
+
+test('插件入口：无 httpServer 环境（headless）下工具仍注册、路由跳过', () => {
+  const ctx = makeCtx(process.cwd())
+  // 模拟 headless：inject 回调不执行（httpServer 服务不存在）
+  ctx.inject = () => {}
+  const registered: unknown[] = []
+  ctx.tools.register = (def: unknown) => { registered.push(def) }
+  apply(ctx as never)
+  assert.equal(registered.length, 1)
+  const tool = registered[0] as { name: string }
+  assert.equal(tool.name, 'context_audit')
 })
 
 test('插件端到端：execute 产出完整审计报告', async () => {

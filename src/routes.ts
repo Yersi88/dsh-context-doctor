@@ -43,10 +43,16 @@ function parseCwd(url: string): string | undefined {
 export function makeAuditRoutes(config: AuditRoutesConfig): WebRoute[] {
   const { deps, defaultCwd, cacheTtlMs = 60_000 } = config
   const cache = new Map<string, { at: number; promise: Promise<AuditReport> }>()
+  /** 缓存条目上限：防止不同 cwd 参数让缓存无限增长（超限时淘汰最旧条目）。 */
+  const MAX_CACHE_ENTRIES = 32
 
   const audit = (cwd: string): Promise<AuditReport> => {
     const hit = cache.get(cwd)
     if (hit !== undefined && Date.now() - hit.at < cacheTtlMs) return hit.promise
+    if (cache.size >= MAX_CACHE_ENTRIES) {
+      const oldest = cache.keys().next().value
+      if (oldest !== undefined) cache.delete(oldest)
+    }
     const promise = runAudit(deps, { cwd, signal: new AbortController().signal })
       .catch((error: unknown) => {
         // 失败不缓存，允许下次重试

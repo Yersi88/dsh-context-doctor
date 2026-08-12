@@ -38,6 +38,7 @@ DSH 上下文注入审计插件：安装后，模型可调用 `context_audit` �
 - `dsh --profile web --dump-config | grep context-doctor` 输出含 `- id: context-doctor` 与 `name: '@dsh-external/context-doctor'` 的 insert 条目
 - 新会话中 `context_audit` 返回分节报告（指令链 / 技能 / 工具 / 冲突 / 建议）
 - composer 发送框旁出现圆环（绿 / 黄 / 红按注入量分级）
+- headless / CLI 环境（无 Web）同样可用：`dsh --profile headless --patch <含插件的 patch> "调用 context_audit"` 可得到报告
 
 ## Safety Rules
 
@@ -50,6 +51,6 @@ DSH 上下文注入审计插件：安装后，模型可调用 `context_audit` �
 
 **`dsh plugin` 报 pnpm 找不到**：确认 pnpm 在 PATH；安装是显式包管理操作，需要 pnpm。
 
-**圆环没出现**：确认已重启 `dsh web`（浏览器半区产物在启动时校验）；若改过插件源码，需重新 `pnpm run build` 再重启。
+**圆环没出现**：确认已重启 `dsh web`（浏览器半区产物在启动时校验）；若改过插件源码，需重新 `./scripts/build.sh` 再重启。
 
 **报告 token 数与计量条不一致**：token 为启发式估算（ASCII ≈ 4 字符/token，中文 ≈ 1.5 字符/token），用于相对比较，精确值以模型 tokenizer 为准。

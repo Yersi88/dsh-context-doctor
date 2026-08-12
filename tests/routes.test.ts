@@ -72,3 +72,34 @@ test('makeAuditRoutes: 返回 audit 路由并返回报告', async () => {
   assert.equal(body.report.tool, 'context_audit')
   assert.equal(body.report.cwd, '/tmp/x')
 })
+
+test('makeAuditRoutes: 缓存上限淘汰最旧条目', async () => {
+  // 用每次递增的 cwd 打满缓存（> MAX_CACHE_ENTRIES=32），再访问最早的 cwd，
+  // 应重新执行审计而非命中缓存（可通过 runAudit 的副作用次数观察——用
+  // skills.list 计数器来探测）。
+  let listCalls = 0
+  const routes = makeAuditRoutes({
+    deps: {
+      fs: {} as never,
+      skills: {
+        list: async () => { listCalls++; return [] },
+      } as never,
+      tools: {} as never,
+    },
+    defaultCwd: '/tmp/x',
+    cacheTtlMs: 60_000,
+  })
+  // 33 个不同 cwd，超过 32 上限
+  for (let i = 0; i < 33; i++) {
+    const r = await callHandler(routes[0]!.handler, `/api/context-doctor/audit?cwd=/tmp/cache-${i}`)
+    assert.equal(r.status, 200)
+  }
+  const callsAfterFill = listCalls
+  assert.ok(callsAfterFill >= 33, `预期至少 33 次审计，实际 ${callsAfterFill}`)
+
+  // 再次访问最早条目 /tmp/cache-0：已被淘汰，应重新执行
+  const before = listCalls
+  const again = await callHandler(routes[0]!.handler, '/api/context-doctor/audit?cwd=/tmp/cache-0')
+  assert.equal(again.status, 200)
+  assert.ok(listCalls > before, '最早条目被淘汰后应重新审计')
+})

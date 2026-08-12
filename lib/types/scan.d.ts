@@ -37,7 +37,7 @@ export interface SkillCatalogResult {
         count: number;
     }[];
 }
-export declare function scanSkillCatalog(skills: SkillService, cwd: string, signal: AbortSignal): Promise<SkillCatalogResult>;
+export declare function scanSkillCatalog(skillList: Awaited<ReturnType<SkillService['list']>>, signal: AbortSignal): Promise<SkillCatalogResult>;
 /** 工具 schema（模型每请求都会看到的固定成本）。 */
 export interface ToolSchemaResult {
     visibleCount: number;

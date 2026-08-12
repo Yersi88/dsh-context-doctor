@@ -34,9 +34,10 @@
     }
   },
   "scripts": {
-    "build": "tsc -p tsconfig.json && tsdown -c tsdown.config.ts --tsconfig tsconfig.down.json",
-    "typecheck": "tsc -p tsconfig.json --noEmit --pretty false",
-    "test": "node --test tests/"
+    "setup": "node scripts/setup-dsh-deps.mjs",
+    "build": "./scripts/build.sh",
+    "typecheck": "node scripts/setup-dsh-deps.mjs && tsc -p tsconfig.json --noEmit --pretty false",
+    "test": "node --test 'tests/*.test.ts'"
   },
   "peerDependencies": {
     "@deepseek-ai/cordis": "^4.0.1-rc.1"

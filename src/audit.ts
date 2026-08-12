@@ -6,7 +6,7 @@ import type { SkillService } from '@deepseek-ai/dsh-skill'
 import type { ToolRegistry } from '@deepseek-ai/dsh-tools'
 import { findDuplicateDescriptions, findRankShadows } from './analyze.ts'
 import { scanInstructionChain, scanSkillCatalog, scanToolSchemas } from './scan.ts'
-import { estimateTokens, formatTokens } from './tokens.ts'
+import { estimateTokens, formatBytes, formatTokens } from './tokens.ts'
 
 /** 审计报告（canonical JSON 值）。 */
 export interface AuditReport {
@@ -67,9 +67,12 @@ export async function runAudit(deps: AuditDeps, options: AuditOptions): Promise<
   const { fs, skills, tools } = deps
   const { cwd, signal } = options
 
+  // skills.list 只调一次：技能目录统计与冲突检测共用同一份列表。
+  const skillList = await skills.list({ cwd, signal })
+
   const [instructions, skillCatalog, toolSchemas] = await Promise.all([
     scanInstructionChain(fs, cwd, signal),
-    scanSkillCatalog(skills, cwd, signal),
+    scanSkillCatalog(skillList, signal),
     scanToolSchemas(tools, options.agent, signal),
   ])
 
@@ -77,10 +80,9 @@ export async function runAudit(deps: AuditDeps, options: AuditOptions): Promise<
   let bodies: { count: number; totalTokens: number } | undefined
   if (options.includeSkillBodies === true) {
     const max = Math.max(1, Math.min(options.maxSkillBodies ?? 20, 100))
-    const list = await skills.list({ cwd, signal })
     let count = 0
     let totalTokens = 0
-    for (const summary of list.slice(0, max)) {
+    for (const summary of skillList.slice(0, max)) {
       try {
         const def = await skills.get(summary.name, { cwd, signal })
         if (def !== undefined) {
@@ -94,14 +96,12 @@ export async function runAudit(deps: AuditDeps, options: AuditOptions): Promise<
     bodies = { count, totalTokens }
   }
 
-  const conflicts = findRankShadows(
-    (await skills.list({ cwd, signal })).map((s) => ({
-      name: s.name,
-      source: s.source,
-      provider: s.provider,
-      rank: rankOfSource(s.source),
-    })),
-  )
+  const conflicts = findRankShadows(skillList.map((s) => ({
+    name: s.name,
+    source: s.source,
+    provider: s.provider,
+    rank: rankOfSource(s.source),
+  })))
 
   const suggestions = buildSuggestions({
     instructions,
@@ -298,10 +298,4 @@ export function renderReport(report: AuditReport): string {
   }
 
   return lines.join('\n')
-}
-
-function formatBytes(n: number): string {
-  if (n >= 1024 * 1024) return `${(n / 1024 / 1024).toFixed(1)} MB`
-  if (n >= 1024) return `${(n / 1024).toFixed(1)} KB`
-  return `${n} B`
 }

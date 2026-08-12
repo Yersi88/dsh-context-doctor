@@ -146,7 +146,11 @@ context-doctor:
 
 **装了之后圆环没出现？**
 
-重启 `dsh web` 后看新会话的 composer；仍没有则先确认 `dsh --profile web --dump-config` 含 context-doctor 条目，且浏览器半区构建产物存在（改过源码必须重新 `pnpm run build`）。
+重启 `dsh web` 后看新会话的 composer；仍没有则先确认 `dsh --profile web --dump-config` 含 context-doctor 条目，且浏览器半区构建产物存在（改过源码必须重新 `./scripts/build.sh`）。
+
+**没有 Web 界面（headless / CLI）能用吗？**
+
+能。`context_audit` 工具不依赖 Web：插件在无 `httpServer` 服务的环境（如 headless profile）下自动跳过路由注册，工具照常可用。已验证 `dsh --profile headless` 下可直接调用。
 
 **审计结果和计量条对不上？**
 
@@ -167,12 +171,12 @@ context-doctor:
 ## 开发
 
 ```sh
-pnpm run typecheck   # tsc --noEmit
-pnpm test            # node --test（Node ≥ 22.19，原生 TS 支持，零测试依赖）
-pnpm run build       # tsc + tsdown（host + client 双半区）→ lib/
+./scripts/setup-dsh-deps.mjs   # 定位本机 DSH checkout 并链接依赖（首次）
+node --test 'tests/*.test.ts'  # node --test（Node ≥ 22.19，原生 TS 支持，零测试依赖）
+./scripts/build.sh             # setup + tsc（lib/types）+ tsdown（lib/index.js + lib/client.js）
 ```
 
-测试 22 个用例：token 估算、重复块/描述检测、rank shadow、MCP 分组、指令链端到端（真实临时文件系统 + fake FileSystem）、插件入口与完整 execute 报告链路、HTTP 路由（方法检查 + 真实审计响应）。
+测试 24 个用例：token 估算、重复块/描述检测、rank shadow、MCP 分组、指令链端到端（真实临时文件系统 + fake FileSystem）、插件入口与完整 execute 报告链路、HTTP 路由（方法检查 + 真实审计响应 + 缓存上限淘汰）、headless 无 httpServer 环境。
 
 ## 已知限制（v0.2）
 

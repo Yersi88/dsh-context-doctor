@@ -121,14 +121,13 @@ export interface SkillCatalogResult {
 }
 
 export async function scanSkillCatalog(
-  skills: SkillService,
-  cwd: string,
+  skillList: Awaited<ReturnType<SkillService['list']>>,
   signal: AbortSignal,
 ): Promise<SkillCatalogResult> {
-  const list = await skills.list({ cwd, signal })
+  void signal
   const bySource = new Map<string, { count: number; descriptionTokens: number }>()
   let total = 0
-  for (const skill of list) {
+  for (const skill of skillList) {
     const tokens = estimateTokens(skill.description)
     total += tokens
     const cur = bySource.get(skill.source) ?? { count: 0, descriptionTokens: 0 }
@@ -137,12 +136,12 @@ export async function scanSkillCatalog(
     bySource.set(skill.source, cur)
   }
   return {
-    count: list.length,
+    count: skillList.length,
     totalDescriptionTokens: total,
     bySource: [...bySource.entries()]
       .map(([source, v]) => ({ source, ...v }))
       .sort((a, b) => b.descriptionTokens - a.descriptionTokens),
-    duplicateDescriptions: list.map((s) => ({ name: s.name, description: s.description }))
+    duplicateDescriptions: skillList.map((s) => ({ name: s.name, description: s.description }))
       .filter((s) => s.description !== '')
       .reduce<{ name: string; description: string; count: number }[]>((acc, s) => {
         const key = s.description.trim().toLowerCase().replace(/\s+/g, ' ')
