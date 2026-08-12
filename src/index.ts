@@ -1,0 +1,82 @@
+/**
+ * Context Doctor — DSH 上下文注入审计插件。
+ *
+ * - host 半区：注册 `context_audit` 工具 + `GET /api/context-doctor/audit` 路由
+ * - 浏览器半区（`./client`）：composer 圆环 + 展开面板（见 src/client/）
+ */
+import type { Context } from '@deepseek-ai/cordis'
+import { defineTool, type JsonValue } from '@deepseek-ai/dsh-tools'
+import type {} from '@deepseek-ai/dsh-host-webserver'
+import { renderReport, runAudit, type AuditDeps, type AuditReport } from './audit.ts'
+import { makeAuditRoutes } from './routes.ts'
+
+export type { AuditReport } from './audit.ts'
+export { buildSuggestions, rankOfSource, renderReport } from './audit.ts'
+
+export const name = 'context-doctor'
+export const inject = ['fs', 'skills', 'tools'] as const
+
+/** 插件配置。 */
+export interface Config {
+  /** 审计默认目录（浏览器面板不带 cwd 参数时使用；缺省为进程启动目录）。 */
+  defaultCwd?: string
+  /** 审计结果缓存时长（毫秒）。默认 60000。 */
+  cacheTtlMs?: number
+}
+
+export function apply(ctx: Context, config: Config = {}): void {
+  const deps: AuditDeps = { fs: ctx.fs, skills: ctx.skills, tools: ctx.tools }
+
+  // 1. 模型工具
+  ctx.tools.register(defineTool({
+    name: 'context_audit',
+    description:
+      '审计当前会话的上下文注入物：AGENTS.md/CLAUDE.md 指令链、技能目录摘要（catalog）、工具 schema、MCP 工具。'
+      + '估算每项注入的 token 成本，检测跨文件重复段落、技能描述重复、同名技能 shadow、MCP 工具面膨胀，'
+      + '输出按严重度排序的裁剪建议。只读，不修改任何文件。',
+    parameters: {
+      cwd: { type: 'string', description: '审计起点目录；默认使用当前会话工作目录' },
+      includeSkillBodies: {
+        type: 'boolean',
+        description: '是否统计技能正文的总 token（需要逐个加载技能正文，较慢）；默认 false',
+      },
+      maxSkillBodies: {
+        type: 'number',
+        description: 'includeSkillBodies 时最多统计的技能个数；默认 20',
+      },
+    },
+    output: {
+      schema: { type: 'object', additionalProperties: true },
+      render: (_args, value: Record<string, JsonValue>) => [
+        { type: 'text', text: renderReport(value as unknown as AuditReport) },
+      ],
+    },
+    async execute(args, exec): Promise<Record<string, JsonValue>> {
+      const agentCwd = (exec.agent as { session?: { header?: { cwd?: string } } } | undefined)
+        ?.session?.header?.cwd
+      const cwd = args.cwd ?? agentCwd ?? config.defaultCwd ?? process.cwd()
+      const report = await runAudit(deps, {
+        cwd,
+        signal: exec.signal,
+        ...(args.includeSkillBodies !== undefined ? { includeSkillBodies: args.includeSkillBodies } : {}),
+        ...(args.maxSkillBodies !== undefined ? { maxSkillBodies: args.maxSkillBodies } : {}),
+        ...(exec.agent !== undefined ? { agent: exec.agent } : {}),
+      })
+      // AuditReport 结构保证值全部 JSON 安全；断言仅为满足 defineTool 的 JsonValue 签名。
+      return report as unknown as Record<string, JsonValue>
+    },
+  }))
+
+  // 2. HTTP 路由（浏览器圆环面板的数据通道）
+  const routes = makeAuditRoutes({
+    deps,
+    ...(config.defaultCwd !== undefined ? { defaultCwd: config.defaultCwd } : {}),
+    ...(config.cacheTtlMs !== undefined ? { cacheTtlMs: config.cacheTtlMs } : {}),
+  })
+  ctx.effect(() => {
+    const disposers = routes.map((route) => ctx.httpServer.register(route))
+    return () => {
+      for (const dispose of disposers) dispose()
+    }
+  }, 'context-doctor: routes')
+}
