@@ -125,10 +125,12 @@ if (paths !== undefined) {
   let changed = 0
   for (const [name, targets] of Object.entries(paths)) {
     paths[name] = targets.map((t) => {
-      const m = /^\/[^/]+(?:\/[^/]+)*\/packages\//.exec(t)
+      // 非贪婪匹配 checkout 前缀：捕获紧邻的 packages/ 或 node_modules/ 段名，
+      // 段名之后的内容（含 .pnpm 等）原样保留。
+      const m = /^\/[^/]+(?:\/[^/]+)*?\/(packages\/|node_modules\/)/.exec(t)
       if (m !== null && !t.startsWith(`${checkout}/`)) {
         changed++
-        return join(checkout, t.slice(m[0].length))
+        return join(checkout, m[1] + t.slice(m[0].length))
       }
       return t
     })
