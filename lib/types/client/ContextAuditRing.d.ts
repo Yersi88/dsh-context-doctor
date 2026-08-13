@@ -3,7 +3,7 @@
  * 圆环显示"常驻注入"估算 token（指令链 + 技能 catalog + 工具 schema），
  * 颜色按严重度分级；点击展开分项明细与建议数。数据经同源
  * `/api/context-doctor/audit` 拉取。
- * @module @dsh-external/context-doctor/client/ContextAuditRing
+ * @module dsh-context-doctor/client/ContextAuditRing
  */
 import { type ReactElement } from 'react';
 import type { PropsLocale, PropsRuntime, PropsStore } from '@deepseek-ai/dsh-client-ui-slots';

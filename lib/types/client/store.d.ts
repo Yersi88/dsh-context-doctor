@@ -1,7 +1,7 @@
 /**
  * Browser-side audit store: the audit report snapshot plus fetch lifecycle,
  * written only through the store's actions. Components only read snapshots.
- * @module @dsh-external/context-doctor/client/store
+ * @module dsh-context-doctor/client/store
  */
 import type { EngineStoreHandle } from '@deepseek-ai/dsh-client-runtime/client';
 import type { AuditReport } from '../audit.ts';

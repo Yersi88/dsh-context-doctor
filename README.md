@@ -12,7 +12,7 @@
 
 <p align="center">
   <a href="LICENSE"><img alt="License BSD-3-Clause" src="https://img.shields.io/badge/License-BSD%203--Clause-blue.svg?style=for-the-badge"></a>
-  <a href="https://github.com/Zhenyu98/context-doctor/releases"><img alt="Version 0.2.0" src="https://img.shields.io/badge/Version-0.2.0-green.svg?style=for-the-badge"></a>
+  <a href="https://github.com/Zhenyu98/dsh-context-doctor/releases"><img alt="Version 0.2.0" src="https://img.shields.io/badge/Version-0.2.0-green.svg?style=for-the-badge"></a>
   <a href="https://github.com/deepseek-ai/awesome-deepseek-agent"><img alt="For DeepSeek Harness" src="https://img.shields.io/badge/For-DeepSeek%20Harness-8257D0.svg?style=for-the-badge"></a>
 </p>
 
@@ -45,7 +45,7 @@ DSH 会话里，模型每个请求都自动携带一批注入物：层层叠加�
 
 ```sh
 # 1. 安装（官方 bundle 插件机制；构建产物已入库，git 源安装无需构建）
-dsh plugin --profile web add "github:Zhenyu98/context-doctor#main"
+dsh plugin --profile web add "github:Zhenyu98/dsh-context-doctor#main"
 
 # 2. 验证合成树含该条目
 dsh --profile web --dump-config | grep context-doctor
@@ -60,7 +60,7 @@ context_audit
 dsh --profile web --dump-config | grep context-doctor
 # - insert:
 #     - id: context-doctor
-#       name: '@dsh-external/context-doctor'
+#       name: 'dsh-context-doctor'
 ```
 
 重启后 composer 发送框旁出现圆环面板，或模型调用 `context_audit` 返回分节报告，即安装成功。
@@ -70,7 +70,7 @@ dsh --profile web --dump-config | grep context-doctor
 把下面这段发给 Codex、Claude Code、Cursor 或 DSH 里的任意 agent：
 
 ```text
-请阅读 https://github.com/Zhenyu98/context-doctor/blob/main/agent-setup.md
+请阅读 https://github.com/Zhenyu98/dsh-context-doctor/blob/main/agent-setup.md
 并按照步骤帮我安装和配置 Context Doctor（DSH 上下文注入审计插件）。
 目标：装好后我能在 dsh web 里看到圆环面板，并能让模型调用 context_audit。
 修改文件、使用凭据、发布或运行破坏性命令前，先给我看计划并征得同意。

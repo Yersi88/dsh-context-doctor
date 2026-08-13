@@ -11,9 +11,11 @@ cd "$ROOT"
 
 # 1. Locate the DSH checkout and link dev dependencies
 CHECKOUT=""
-if command -v dsh &>/dev/null; then
+if [ "${1:-}" = "--checkout" ] && [ -n "${2:-}" ]; then
+  CHECKOUT="$2"
+elif command -v dsh &>/dev/null; then
   DSH_BIN=$(readlink -f "$(command -v dsh)" 2>/dev/null || command -v dsh)
-  CHECKOUT=$(cd "$(dirname "$DSH_BIN")/.." && pwd)
+  CHECKOUT=$(cd "$(dirname "$DSH_BIN")/.." 2>/dev/null && pwd)
 fi
 if [ -z "$CHECKOUT" ] || [ ! -d "$CHECKOUT/packages" ]; then
   echo "build: cannot locate the dsh checkout (dsh not on PATH?)" >&2

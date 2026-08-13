@@ -2,7 +2,7 @@
  * Context Doctor browser half — registers the audit ring into the
  * conversation composer dock and drives it from the host's same-origin
  * `/api/context-doctor/audit` endpoint: fetch on mount, manual refresh.
- * @module @dsh-external/context-doctor/client
+ * @module dsh-context-doctor/client
  */
 
 import type { ClientContext } from '@deepseek-ai/dsh-client-runtime/client'
