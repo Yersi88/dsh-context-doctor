@@ -26,10 +26,6 @@
   <a href="#license">License</a>
 </p>
 
-<p align="center">
-  <img src="docs/assets/ring-panel.png" alt="Context Doctor 圆环面板示意" width="46%" />
-</p>
-
 ## Why
 
 DSH 会话里，模型每个请求都自动携带一批注入物：层层叠加的 `AGENTS.md` 指令链、一百多个技能的目录摘要、几十个工具 schema、MCP 工具面。它们悄悄消耗输入 token，且经常出现跨文件重复段落、同名技能互相遮蔽、工具面膨胀——但平时没人量化，问题到上下文告警时才暴露。
