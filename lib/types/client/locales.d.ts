@@ -12,13 +12,17 @@ export declare const zh: {
     readonly 'cd.skills': "技能 catalog";
     readonly 'cd.tools': "工具 schema";
     readonly 'cd.mcp': "MCP 工具";
-    readonly 'cd.suggestions': "建议 {n}";
+    readonly 'cd.suggestions': "建议 {n} 条";
     readonly 'cd.refresh': "刷新";
     readonly 'cd.loading': "审计中…";
     readonly 'cd.error': "审计失败";
     readonly 'cd.empty': "暂无数据";
+    readonly 'cd.healthy': "健康";
     readonly 'cd.catalog': "{n} 技能";
     readonly 'cd.mcpTools': "{n} 工具";
+    readonly 'cd.files': "文件";
+    readonly 'cd.toolsCount': "工具";
+    readonly 'cd.hint': "点击圆环切换面板";
 };
 /** English copy. */
 export declare const en: {
@@ -33,8 +37,12 @@ export declare const en: {
     readonly 'cd.loading': "Auditing…";
     readonly 'cd.error': "Audit failed";
     readonly 'cd.empty': "No data yet";
+    readonly 'cd.healthy': "healthy";
     readonly 'cd.catalog': "{n} skills";
     readonly 'cd.mcpTools': "{n} tools";
+    readonly 'cd.files': "files";
+    readonly 'cd.toolsCount': "tools";
+    readonly 'cd.hint': "Click ring to toggle";
 };
 declare module '@deepseek-ai/dsh-client-ui-slots' {
     interface LocaleNamespaceMap {

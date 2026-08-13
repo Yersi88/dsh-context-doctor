@@ -31,13 +31,14 @@ export type { AuditUiState } from './store.ts'
 /** 当前 in-flight 请求的取消控制器：新请求先取消旧请求（避免乱序覆盖）。 */
 let currentController: AbortController | null = null
 
-/** Fetch the host audit report into the store. */
-function fetchReport(actions: BakedAuditActions | null): void {
+/** Fetch the host audit report into the store（带会话 id，host 侧据此解析会话 cwd）。 */
+function fetchReport(actions: BakedAuditActions | null, sessionId: SessionId | null): void {
   currentController?.abort()
   const controller = new AbortController()
   currentController = controller
   actions?.setState('loading', null)
-  fetch(AUDIT_API, { signal: controller.signal }).then((response) => {
+  const url = sessionId !== null ? `${AUDIT_API}?session=${encodeURIComponent(sessionId)}` : AUDIT_API
+  fetch(url, { signal: controller.signal }).then((response) => {
     if (!response.ok) throw new Error(`audit ${response.status}`)
     return response.json() as Promise<{ ok: boolean; report: AuditUiState['report'] }>
   }).then((data) => {
@@ -59,12 +60,14 @@ export function apply(ctx: ClientContext): void {
 
   const store = createAuditStore()
   let baked: BakedAuditActions | null = null
+  let currentSessionId: SessionId | null = null
 
-  const injected = (_sessionId: SessionId, actions: BakedAuditActions): AuditInjected => {
+  const injected = (sessionId: SessionId, actions: BakedAuditActions): AuditInjected => {
     baked = actions
+    currentSessionId = sessionId
     return {
-      ensure: () => fetchReport(baked),
-      refresh: () => fetchReport(baked),
+      ensure: () => fetchReport(baked, currentSessionId),
+      refresh: () => fetchReport(baked, currentSessionId),
     }
   }
 

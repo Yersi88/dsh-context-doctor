@@ -73,6 +73,36 @@ test('makeAuditRoutes: 返回 audit 路由并返回报告', async () => {
   assert.equal(body.report.cwd, '/tmp/x')
 })
 
+test('makeAuditRoutes: session 参数解析会话 cwd（无显式 cwd 时）', async () => {
+  const routes = makeAuditRoutes({
+    deps: {
+      fs: {} as never,
+      skills: { list: async () => [] } as never,
+      tools: {} as never,
+    },
+    sessions: {
+      get: (id: string) => id === 'sess-1' ? { header: { cwd: '/workspace/proj' } } : undefined,
+    },
+  })
+  // session 命中：审计落在会话 cwd
+  const hit = await callHandler(routes[0]!.handler, '/api/context-doctor/audit?session=sess-1')
+  assert.equal(hit.status, 200)
+  const hitBody = hit.body as { ok: boolean; report: AuditReport }
+  assert.equal(hitBody.report.cwd, '/workspace/proj')
+
+  // session 未知：回退进程 cwd
+  const miss = await callHandler(routes[0]!.handler, '/api/context-doctor/audit?session=nope')
+  assert.equal(miss.status, 200)
+  const missBody = miss.body as { ok: boolean; report: AuditReport }
+  assert.equal(missBody.report.cwd, process.cwd())
+
+  // 显式 cwd 优先于 session
+  const both = await callHandler(routes[0]!.handler, '/api/context-doctor/audit?cwd=/tmp/z&session=sess-1')
+  assert.equal(both.status, 200)
+  const bothBody = both.body as { ok: boolean; report: AuditReport }
+  assert.equal(bothBody.report.cwd, '/tmp/z')
+})
+
 test('makeAuditRoutes: 缓存上限淘汰最旧条目', async () => {
   // 用每次递增的 cwd 打满缓存（> MAX_CACHE_ENTRIES=32），再访问最早的 cwd，
   // 应重新执行审计而非命中缓存（可通过 runAudit 的副作用次数观察——用

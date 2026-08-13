@@ -47,6 +47,7 @@ function makeCtx(workspaceDir: string, skills: unknown[] = [], toolSchemas: unkn
     effect: (fn: () => unknown) => fn(),
     inject: (_name: string, fn: (httpCtx: { webServer: unknown; effect: (f: unknown) => unknown }) => unknown) =>
       fn({ webServer: { register: () => () => {} }, effect: (f: unknown) => (f as () => unknown)() }),
+    get: () => undefined,
     toolsRegistered: [] as unknown[],
     register: function (def: unknown) { this.toolsRegistered.push(def) },
   }

@@ -2,7 +2,7 @@
  * Context Doctor 圆环 + 展开面板（挂在 conversation.composer.dock）。
  * 圆环显示"常驻注入"估算 token（指令链 + 技能 catalog + 工具 schema），
  * 颜色按严重度分级；点击展开分项明细与建议数。数据经同源
- * `/api/context-doctor/audit` 拉取。
+ * `/api/context-doctor/audit` 拉取（带当前会话 id，审计落在会话工作区）。
  * @module dsh-context-doctor/client/ContextAuditRing
  */
 import { type ReactElement } from 'react';

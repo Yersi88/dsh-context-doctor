@@ -6,6 +6,11 @@
  */
 import type { Context } from '@deepseek-ai/cordis'
 import { defineTool, type JsonValue } from '@deepseek-ai/dsh-tools'
+// Type-only side-effect imports: pull each package's `declare module '@deepseek-ai/cordis'`
+// Context augmentation (fs / skills / tools / webServer) into this compilation unit.
+import type {} from '@deepseek-ai/dsh-fs'
+import type {} from '@deepseek-ai/dsh-skill'
+import type {} from '@deepseek-ai/dsh-tools'
 import type {} from '@deepseek-ai/dsh-host-webserver'
 import { renderReport, runAudit, type AuditDeps, type AuditReport } from './audit.ts'
 import { makeAuditRoutes } from './routes.ts'
@@ -72,6 +77,7 @@ export function apply(ctx: Context, config: Config = {}): void {
   //    时自动跳过，context_audit 工具不受影响。
   const routes = makeAuditRoutes({
     deps,
+    ...(ctx.get('sessions') !== undefined ? { sessions: ctx.sessions as never } : {}),
     ...(config.defaultCwd !== undefined ? { defaultCwd: config.defaultCwd } : {}),
     ...(config.cacheTtlMs !== undefined ? { cacheTtlMs: config.cacheTtlMs } : {}),
   })
