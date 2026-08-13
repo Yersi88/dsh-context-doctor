@@ -5,7 +5,7 @@ DSH 上下文注入审计插件：安装后，模型可调用 `context_audit` �
 ## Copy-Paste Prompt
 
 ```text
-请阅读 https://github.com/dsh-external/context-doctor/blob/main/agent-setup.md
+请阅读 https://github.com/Zhenyu98/context-doctor/blob/main/agent-setup.md
 并按照步骤帮我安装和配置 Context Doctor（DSH 上下文注入审计插件）。
 目标：装好后我能在 dsh web 里看到圆环面板，并能让模型调用 context_audit。
 修改文件、使用凭据、发布或运行破坏性命令前，先给我看计划并征得同意。
@@ -22,7 +22,7 @@ DSH 上下文注入审计插件：安装后，模型可调用 `context_audit` �
 1. **安装**（官方 bundle 插件机制，构建产物已入库，无需构建）：
 
    ```sh
-   dsh plugin --profile web add "github:dsh-external/context-doctor#main"
+   dsh plugin --profile web add "github:Zhenyu98/context-doctor#main"
    ```
 
 2. **验证合成树**：
