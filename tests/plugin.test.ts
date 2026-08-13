@@ -44,6 +44,9 @@ function makeCtx(workspaceDir: string, skills: unknown[] = [], toolSchemas: unkn
     webServer: {
       register: () => () => {},
     },
+    sessions: {
+      get: () => undefined,
+    },
     effect: (fn: () => unknown) => fn(),
     inject: (_name: string, fn: (httpCtx: { webServer: unknown; effect: (f: unknown) => unknown }) => unknown) =>
       fn({ webServer: { register: () => () => {} }, effect: (f: unknown) => (f as () => unknown)() }),
@@ -60,7 +63,7 @@ test('插件入口：apply 注册 context_audit 工具', () => {
   ctx.tools.register = (def: unknown) => { registered.push(def) }
   apply(ctx as never)
   assert.equal(name, 'context-doctor')
-  assert.deepEqual(inject, ['fs', 'skills', 'tools'])
+  assert.deepEqual(inject, ['fs', 'skills', 'tools', 'sessions'])
   assert.equal(registered.length, 1)
   const tool = registered[0] as { name: string; description: string; parameters: { properties: Record<string, unknown> }; execute: Function; output: { render: Function } }
   assert.equal(tool.name, 'context_audit')

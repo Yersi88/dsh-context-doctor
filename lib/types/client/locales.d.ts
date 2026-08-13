@@ -18,6 +18,12 @@ export declare const zh: {
     readonly 'cd.error': "审计失败";
     readonly 'cd.empty': "暂无数据";
     readonly 'cd.healthy': "健康";
+    readonly 'cd.attention': "需关注";
+    readonly 'cd.review': "建议优化";
+    readonly 'cd.healthyHint': "常驻上下文仍在建议预算内。";
+    readonly 'cd.reviewHint': "优先处理下方建议，降低后续请求的上下文负担。";
+    readonly 'cd.guideline': "50k 参考线";
+    readonly 'cd.updated': "更新于";
     readonly 'cd.catalog': "{n} 技能";
     readonly 'cd.mcpTools': "{n} 工具";
     readonly 'cd.files': "文件";
@@ -38,6 +44,12 @@ export declare const en: {
     readonly 'cd.error': "Audit failed";
     readonly 'cd.empty': "No data yet";
     readonly 'cd.healthy': "healthy";
+    readonly 'cd.attention': "attention";
+    readonly 'cd.review': "worth reviewing";
+    readonly 'cd.healthyHint': "Resident context remains within the budget guideline.";
+    readonly 'cd.reviewHint': "Start with the suggestions below to reduce request overhead.";
+    readonly 'cd.guideline': "50k guide";
+    readonly 'cd.updated': "Updated";
     readonly 'cd.catalog': "{n} skills";
     readonly 'cd.mcpTools': "{n} tools";
     readonly 'cd.files': "files";

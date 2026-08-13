@@ -63,7 +63,7 @@ dsh --profile web --dump-config | grep context-doctor
 #       name: 'dsh-context-doctor'
 ```
 
-重启后 composer 发送框旁出现圆环面板，或模型调用 `context_audit` 返回分节报告，即安装成功。
+重启后，在**已有会话**的 composer 发送框旁出现圆环面板，或模型调用 `context_audit` 返回分节报告，即安装成功。面板沿用 DSH 的浅色 / 深色 / 跟随系统主题；新会话尚未分配 `sessionId` 时不会显示会话级面板。
 
 ## Agent Setup
 
@@ -82,7 +82,7 @@ dsh --profile web --dump-config | grep context-doctor
 
 ### 两种形态
 
-1. **Web UI 圆环面板**（composer 发送框旁）：圆环显示"常驻注入"估算 token（指令链 + 技能 catalog + 工具 schema），颜色按严重度分级（绿 &lt;10k / 黄 &lt;30k / 红 ≥30k）；点击展开分项明细（指令链 / 技能 catalog / 工具 schema / MCP）+ 建议列表 + 手动刷新。数据经 `GET /api/context-doctor/audit`（host 侧 60s 缓存）拉取。
+1. **Web UI 圆环面板**（已有会话的 composer 发送框旁）：圆环显示"常驻注入"估算 token（指令链 + 技能 catalog + 工具 schema），颜色按严重度分级（绿 &lt;10k / 黄 &lt;30k / 红 ≥30k）；点击展开分项明细（指令链 / 技能 catalog / 工具 schema / MCP）+ 建议列表 + 手动刷新。面板使用 DSH 的语义色 token，自动跟随浅色、深色与系统主题。数据经 `GET /api/context-doctor/audit`（host 侧 60s 缓存）拉取。
 2. **`context_audit` 模型工具**：完整审计报告（含 rank shadow 冲突与按严重度排序的建议），模型可自主调用并执行建议。
 
 ### 审计内容
@@ -146,7 +146,7 @@ context-doctor:
 
 **装了之后圆环没出现？**
 
-重启 `dsh web` 后看新会话的 composer；仍没有则先确认 `dsh --profile web --dump-config` 含 context-doctor 条目，且浏览器半区构建产物存在（改过源码必须重新 `./scripts/build.sh`）。
+重启 `dsh web` 后进入已有会话的 composer；新会话在分配 `sessionId` 前不会显示会话级面板。仍没有则先确认 `dsh --profile web --dump-config` 含 context-doctor 条目，且浏览器半区构建产物存在（改过源码必须重新 `./scripts/build.sh`）。
 
 **没有 Web 界面（headless / CLI）能用吗？**
 
@@ -176,7 +176,7 @@ node --test 'tests/*.test.ts'  # node --test（Node ≥ 22.19，原生 TS 支持
 ./scripts/build.sh             # setup + tsc（lib/types）+ tsdown（lib/index.js + lib/client.js）
 ```
 
-测试 24 个用例：token 估算、重复块/描述检测、rank shadow、MCP 分组、指令链端到端（真实临时文件系统 + fake FileSystem）、插件入口与完整 execute 报告链路、HTTP 路由（方法检查 + 真实审计响应 + 缓存上限淘汰）、headless 无 httpServer 环境。
+测试 25 个用例：token 估算、重复块/描述检测、rank shadow、MCP 分组、指令链端到端（真实临时文件系统 + fake FileSystem）、插件入口与完整 execute 报告链路、会话工作目录路由、HTTP 路由（方法检查 + 真实审计响应 + 缓存上限淘汰）、headless 无 httpServer 环境。
 
 ## 已知限制（v0.2）
 
