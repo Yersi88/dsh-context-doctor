@@ -162,6 +162,10 @@ export interface ToolSchemaResult {
   nativeCount: number
   nativeTokens: number
   mcp: McpSummary
+  /** 当前 agent 可见的 schema 明细；仅开发者回执使用。 */
+  items: { name: string; bytes: number; tokens: number; schemaHash: string; server?: string }[]
+  /** 以忽略 MCP 名称的签名分组，用于暴露跨 server 的重复接口。 */
+  mcpDuplicates: Map<string, { name: string; server: string; bytes: number }[]>
 }
 
 export async function scanToolSchemas(
@@ -183,13 +187,42 @@ export async function scanToolSchemas(
   let schemaTokens = 0
   let nativeCount = 0
   let nativeTokens = 0
+  const items: ToolSchemaResult['items'] = []
+  const mcpDuplicates = new Map<string, { name: string; server: string; bytes: number }[]>()
   for (const schema of schemas) {
+    const serialised = stableJson(schema)
+    const bytes = new TextEncoder().encode(serialised).byteLength
     const tokens = estimateTokens(schema.name) + estimateTokens(schema.description ?? '')
+    const server = schema.name.startsWith('mcp__') ? schema.name.split('__')[1] ?? 'unknown' : undefined
+    const schemaHash = hashSchema(schema.name.startsWith('mcp__')
+      ? stableJson({ description: schema.description ?? '', parameters: schema.parameters ?? null })
+      : serialised)
+    items.push({ name: schema.name, bytes, tokens, schemaHash, ...(server !== undefined ? { server } : {}) })
+    if (server !== undefined) {
+      const duplicate = mcpDuplicates.get(schemaHash) ?? []
+      duplicate.push({ name: schema.name, server, bytes })
+      mcpDuplicates.set(schemaHash, duplicate)
+    }
     schemaTokens += tokens
     if (schema.name.startsWith('mcp__')) continue
     nativeCount++
     nativeTokens += tokens
   }
   const mcp = groupMcpTools(schemas)
-  return { visibleCount: schemas.length, schemaTokens, nativeCount, nativeTokens, mcp }
+  return { visibleCount: schemas.length, schemaTokens, nativeCount, nativeTokens, mcp, items, mcpDuplicates }
+}
+
+function stableJson(value: unknown): string {
+  if (Array.isArray(value)) return `[${value.map(stableJson).join(',')}]`
+  if (value !== null && typeof value === 'object') {
+    const record = value as Record<string, unknown>
+    return `{${Object.keys(record).sort().map(key => `${JSON.stringify(key)}:${stableJson(record[key])}`).join(',')}}`
+  }
+  return JSON.stringify(value)
+}
+
+function hashSchema(value: string): string {
+  let hash = 2166136261
+  for (let i = 0; i < value.length; i++) hash = Math.imul(hash ^ value.charCodeAt(i), 16777619)
+  return `fnv1a-${(hash >>> 0).toString(16).padStart(8, '0')}`
 }

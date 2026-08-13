@@ -45,5 +45,19 @@ export interface ToolSchemaResult {
     nativeCount: number;
     nativeTokens: number;
     mcp: McpSummary;
+    /** 当前 agent 可见的 schema 明细；仅开发者回执使用。 */
+    items: {
+        name: string;
+        bytes: number;
+        tokens: number;
+        schemaHash: string;
+        server?: string;
+    }[];
+    /** 以忽略 MCP 名称的签名分组，用于暴露跨 server 的重复接口。 */
+    mcpDuplicates: Map<string, {
+        name: string;
+        server: string;
+        bytes: number;
+    }[]>;
 }
 export declare function scanToolSchemas(tools: ToolRuntime, agent: unknown, signal: AbortSignal): Promise<ToolSchemaResult>;

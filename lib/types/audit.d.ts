@@ -72,6 +72,58 @@ export interface AuditReport {
         severity: 'high' | 'medium' | 'low';
         text: string;
     }[];
+    /** 仅 `detail=developer` 时附加：供 Agent 定点修复的上下文审计回执。 */
+    receipt?: ContextAuditReceipt;
+}
+/** 开发者明细回执；所有条目均来自当前可观测的注入面。 */
+export interface ContextAuditReceipt {
+    kind: 'context-audit-receipt';
+    version: 1;
+    detail: 'developer';
+    agentsFiles: {
+        path: string;
+        bytes: number;
+        tokens: number;
+        loadOrder: number;
+        duplicateBlocks: {
+            sha256: string;
+            tokens: number;
+            paths: string[];
+            preview: string;
+        }[];
+    }[];
+    skills: {
+        name: string;
+        source: string;
+        provider: string;
+        descriptionBytes: number;
+        descriptionTokens: number;
+        /** 条目在模型每请求可见的 skills catalog 中；不表示技能正文已按需读取。 */
+        catalogInjected: true;
+    }[];
+    toolSchemas: {
+        totalBytes: number;
+        items: {
+            name: string;
+            bytes: number;
+            tokens: number;
+            schemaHash: string;
+            server?: string;
+        }[];
+    };
+    duplicateMcpEntries: {
+        schemaHash: string;
+        names: string[];
+        servers: string[];
+        bytes: number;
+    }[];
+    shadowedSkills: AuditReport['conflicts'];
+    /** DSH 未暴露 assembly trace 时，必须保持 unavailable，不能推测裁剪结果。 */
+    trimmed: {
+        status: 'unavailable';
+        items: [];
+    };
+    repairPlan: AuditReport['suggestions'];
 }
 /** 审计引擎依赖的服务面（工具执行与 HTTP 路由共用）。 */
 export interface AuditDeps {
@@ -87,6 +139,8 @@ export interface AuditOptions {
     includeSkillBodies?: boolean;
     /** includeSkillBodies 时最多统计的技能个数。 */
     maxSkillBodies?: number;
+    /** `developer` 附加可定位的 context-audit receipt；默认只返回摘要。 */
+    detail?: 'summary' | 'developer';
     /** 当前执行上下文（工具执行时传入 exec.agent，用于解析会话 cwd）。 */
     agent?: unknown;
 }

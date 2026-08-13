@@ -1,7 +1,7 @@
 {
   "name": "dsh-context-doctor",
-  "version": "0.2.0",
-  "description": "DSH 上下文注入审计插件：统计 AGENTS.md 指令链 / 技能目录 / 工具 schema / MCP 工具的 token 成本，检测重复与冲突；Web UI 圆环面板（composer dock）+ context_audit 工具。",
+  "version": "0.5.0",
+  "description": "DSH 上下文注入审计插件：统计 AGENTS.md 指令链 / 技能目录 / 工具 schema / MCP 工具的 token 成本，检测重复与冲突；原生 Context Doctor 面板 + context_audit 工具。",
   "type": "module",
   "main": "./lib/index.js",
   "types": "./lib/types/index.d.ts",

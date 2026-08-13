@@ -4,6 +4,7 @@
 import type { FileSystem } from '@deepseek-ai/dsh-fs'
 import type { SkillRegistry } from '@deepseek-ai/dsh-skill'
 import type { ToolRuntime } from '@deepseek-ai/dsh-tools'
+import { createHash } from 'node:crypto'
 import { findDuplicateDescriptions, findRankShadows } from './analyze.ts'
 import { scanInstructionChain, scanSkillCatalog, scanToolSchemas } from './scan.ts'
 import { estimateTokens, formatBytes, formatTokens } from './tokens.ts'
@@ -41,6 +42,40 @@ export interface AuditReport {
   }
   conflicts: { name: string; winner: { source: string; provider: string }; shadowed: { source: string; provider: string }[] }[]
   suggestions: { severity: 'high' | 'medium' | 'low'; text: string }[]
+  /** 仅 `detail=developer` 时附加：供 Agent 定点修复的上下文审计回执。 */
+  receipt?: ContextAuditReceipt
+}
+
+/** 开发者明细回执；所有条目均来自当前可观测的注入面。 */
+export interface ContextAuditReceipt {
+  kind: 'context-audit-receipt'
+  version: 1
+  detail: 'developer'
+  agentsFiles: {
+    path: string
+    bytes: number
+    tokens: number
+    loadOrder: number
+    duplicateBlocks: { sha256: string; tokens: number; paths: string[]; preview: string }[]
+  }[]
+  skills: {
+    name: string
+    source: string
+    provider: string
+    descriptionBytes: number
+    descriptionTokens: number
+    /** 条目在模型每请求可见的 skills catalog 中；不表示技能正文已按需读取。 */
+    catalogInjected: true
+  }[]
+  toolSchemas: {
+    totalBytes: number
+    items: { name: string; bytes: number; tokens: number; schemaHash: string; server?: string }[]
+  }
+  duplicateMcpEntries: { schemaHash: string; names: string[]; servers: string[]; bytes: number }[]
+  shadowedSkills: AuditReport['conflicts']
+  /** DSH 未暴露 assembly trace 时，必须保持 unavailable，不能推测裁剪结果。 */
+  trimmed: { status: 'unavailable'; items: [] }
+  repairPlan: AuditReport['suggestions']
 }
 
 /** 审计引擎依赖的服务面（工具执行与 HTTP 路由共用）。 */
@@ -58,6 +93,8 @@ export interface AuditOptions {
   includeSkillBodies?: boolean
   /** includeSkillBodies 时最多统计的技能个数。 */
   maxSkillBodies?: number
+  /** `developer` 附加可定位的 context-audit receipt；默认只返回摘要。 */
+  detail?: 'summary' | 'developer'
   /** 当前执行上下文（工具执行时传入 exec.agent，用于解析会话 cwd）。 */
   agent?: unknown
 }
@@ -110,7 +147,7 @@ export async function runAudit(deps: AuditDeps, options: AuditOptions): Promise<
     conflicts,
   })
 
-  return {
+  const report: AuditReport = {
     tool: 'context_audit',
     version: 1,
     cwd,
@@ -138,6 +175,83 @@ export async function runAudit(deps: AuditDeps, options: AuditOptions): Promise<
     },
     conflicts,
     suggestions,
+  }
+
+  if (options.detail === 'developer') {
+    report.receipt = buildDeveloperReceipt({
+      instructions,
+      skillList,
+      toolSchemas,
+      conflicts,
+      suggestions,
+    })
+  }
+  return report
+}
+
+function byteLength(value: string): number {
+  return new TextEncoder().encode(value).byteLength
+}
+
+function sha256(value: string): string {
+  return createHash('sha256').update(value).digest('hex')
+}
+
+function preview(value: string, max = 160): string {
+  const compact = value.replace(/\s+/g, ' ').trim()
+  return compact.length <= max ? compact : `${compact.slice(0, max - 1)}…`
+}
+
+function buildDeveloperReceipt(input: {
+  instructions: Awaited<ReturnType<typeof scanInstructionChain>>
+  skillList: Awaited<ReturnType<SkillRegistry['list']>>
+  toolSchemas: Awaited<ReturnType<typeof scanToolSchemas>>
+  conflicts: AuditReport['conflicts']
+  suggestions: AuditReport['suggestions']
+}): ContextAuditReceipt {
+  const agentsFiles = input.instructions.files.map((file, index) => ({
+    ...file,
+    loadOrder: index + 1,
+    duplicateBlocks: input.instructions.duplicateBlocks
+      .filter(block => block.paths.includes(file.path))
+      .map(block => ({ sha256: sha256(block.text), tokens: block.tokens, paths: block.paths, preview: preview(block.text) })),
+  }))
+  const skills = input.skillList.map(skill => ({
+    name: skill.name,
+    source: skill.source,
+    provider: skill.provider,
+    descriptionBytes: byteLength(skill.description),
+    descriptionTokens: estimateTokens(skill.description),
+    catalogInjected: true as const,
+  }))
+  const schemaItems = input.toolSchemas.items.map(item => ({
+    name: item.name,
+    bytes: item.bytes,
+    tokens: item.tokens,
+    schemaHash: item.schemaHash,
+    ...(item.server !== undefined ? { server: item.server } : {}),
+  }))
+  const duplicateMcpEntries = [...input.toolSchemas.mcpDuplicates.entries()]
+    .filter(([, items]) => items.length > 1)
+    .map(([schemaHash, items]) => ({
+      schemaHash,
+      names: items.map(item => item.name).sort(),
+      servers: [...new Set(items.map(item => item.server))].sort(),
+      bytes: items.reduce((total, item) => total + item.bytes, 0),
+    }))
+    .sort((a, b) => b.bytes - a.bytes || a.schemaHash.localeCompare(b.schemaHash))
+
+  return {
+    kind: 'context-audit-receipt',
+    version: 1,
+    detail: 'developer',
+    agentsFiles,
+    skills,
+    toolSchemas: { totalBytes: schemaItems.reduce((total, item) => total + item.bytes, 0), items: schemaItems },
+    duplicateMcpEntries,
+    shadowedSkills: input.conflicts,
+    trimmed: { status: 'unavailable', items: [] },
+    repairPlan: input.suggestions,
   }
 }
 
@@ -295,6 +409,29 @@ export function renderReport(report: AuditReport): string {
   }
   for (const s of report.suggestions) {
     lines.push(`- [${s.severity}] ${s.text}`)
+  }
+
+  if (report.receipt !== undefined) {
+    const receipt = report.receipt
+    lines.push('')
+    lines.push('## Developer context-audit receipt')
+    lines.push(`- AGENTS files: ${receipt.agentsFiles.length}`)
+    for (const file of receipt.agentsFiles) {
+      lines.push(`  - #${file.loadOrder} ${file.path}: ${formatBytes(file.bytes)} / ${formatTokens(file.tokens)} token`)
+      for (const duplicate of file.duplicateBlocks) {
+        lines.push(`    - duplicate ${duplicate.sha256.slice(0, 12)}… (${formatTokens(duplicate.tokens)} token): ${duplicate.preview}`)
+      }
+    }
+    lines.push(`- Catalog-injected skills: ${receipt.skills.length}`)
+    for (const skill of receipt.skills) {
+      lines.push(`  - ${skill.name} [${skill.source}/${skill.provider}]: ${formatBytes(skill.descriptionBytes)} / ${formatTokens(skill.descriptionTokens)} token`)
+    }
+    lines.push(`- Tool schemas: ${formatBytes(receipt.toolSchemas.totalBytes)} serialized across ${receipt.toolSchemas.items.length} tools`)
+    for (const duplicate of receipt.duplicateMcpEntries) {
+      lines.push(`  - duplicate MCP signature ${duplicate.schemaHash}: ${duplicate.names.join('、')} (${formatBytes(duplicate.bytes)})`)
+    }
+    lines.push(`- Shadowed skills: ${receipt.shadowedSkills.length}`)
+    lines.push(`- Trimmed entries: ${receipt.trimmed.status} (DSH assembly trace is not exposed)`)
   }
 
   return lines.join('\n')

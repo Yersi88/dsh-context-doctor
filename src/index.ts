@@ -50,6 +50,11 @@ export function apply(ctx: Context, config: Config = {}): void {
         type: 'number',
         description: 'includeSkillBodies 时最多统计的技能个数；默认 20',
       },
+      detail: {
+        type: 'string',
+        enum: ['summary', 'developer'],
+        description: '输出层级：summary 为精简摘要；developer 额外附带可定位的 context-audit receipt',
+      },
     },
     output: {
       schema: { type: 'object', additionalProperties: true },
@@ -66,6 +71,7 @@ export function apply(ctx: Context, config: Config = {}): void {
         signal: exec.signal,
         ...(args.includeSkillBodies !== undefined ? { includeSkillBodies: args.includeSkillBodies } : {}),
         ...(args.maxSkillBodies !== undefined ? { maxSkillBodies: args.maxSkillBodies } : {}),
+        ...(args.detail === 'developer' ? { detail: 'developer' as const } : {}),
         ...(exec.agent !== undefined ? { agent: exec.agent } : {}),
       })
       // AuditReport 结构保证值全部 JSON 安全；断言仅为满足 defineTool 的 JsonValue 签名。

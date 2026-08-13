@@ -26,10 +26,10 @@ function makeCtx(workspaceDir: string, skills: unknown[] = [], toolSchemas: unkn
       return readFileSync(target.targetKey, 'utf8')
     },
   }
-  const skillSummaries = skills.map((s: { name: string; description: string }) => ({
+  const skillSummaries = skills.map((s: { name: string; description: string; source?: string; provider?: string }) => ({
     ...s,
-    source: 'user-dsh',
-    provider: 'skill-local',
+    source: s.source ?? 'user-dsh',
+    provider: s.provider ?? 'skill-local',
     invocation: { modelInvocable: true, userInvocable: false },
   }))
   return {
@@ -69,7 +69,8 @@ test('插件入口：apply 注册 context_audit 工具', () => {
   assert.equal(tool.name, 'context_audit')
   assert.ok(tool.description.length > 20)
   assert.ok('cwd' in tool.parameters.properties)
-  assert.ok('includeSkillBodies' in tool.parameters.properties)
+    assert.ok('includeSkillBodies' in tool.parameters.properties)
+  assert.ok('detail' in tool.parameters.properties)
   assert.equal(typeof tool.execute, 'function')
 })
 
@@ -99,15 +100,18 @@ test('插件端到端：execute 产出完整审计报告', async () => {
     const ctx = makeCtx(process.cwd(), [
       { name: 'skill-a', description: '重复描述' },
       { name: 'skill-b', description: '重复描述' },
+      { name: 'shadowed-skill', description: 'project copy', source: 'project-dsh' },
+      { name: 'shadowed-skill', description: 'bundled copy', source: 'bundled' },
     ], [
-      { name: 'mcp__github__create_issue', description: 'Create an issue' },
+      { name: 'mcp__github__create_issue', description: 'Create an issue', parameters: { type: 'object', properties: {} } },
+      { name: 'mcp__tracker__open_issue', description: 'Create an issue', parameters: { type: 'object', properties: {} } },
       { name: 'read_file', description: 'Read a file' },
     ])
     const registered: unknown[] = []
     ctx.tools.register = (def: unknown) => { registered.push(def) }
     apply(ctx as never)
     const tool = registered[0] as { execute: Function }
-    const args = {}
+    const args = { detail: 'developer' }
     const exec = { agent: { session: { header: { cwd: sub } } }, signal: new AbortController().signal }
     const report = await tool.execute(args, exec) as AuditReport
 
@@ -119,14 +123,25 @@ test('插件端到端：execute 产出完整审计报告', async () => {
     // 重复块
     assert.ok(report.injected.instructions.duplicateBlocks.length >= 1)
     // 技能目录：2 个技能、描述重复
-    assert.equal(report.injected.skills.catalogCount, 2)
+    assert.equal(report.injected.skills.catalogCount, 4)
     assert.ok(report.injected.skills.duplicateDescriptions.length >= 1)
     // 工具：1 原生 + 1 MCP
-    assert.equal(report.injected.tools.visibleCount, 2)
-    assert.equal(report.injected.tools.mcp.totalTools, 1)
+    assert.equal(report.injected.tools.visibleCount, 3)
+    assert.equal(report.injected.tools.mcp.totalTools, 2)
     assert.equal(report.injected.tools.nativeCount, 1)
     // 建议：至少一条（重复段落）
     assert.ok(report.suggestions.length >= 1)
+
+    // 开发者回执：每个条目均可定位，且不存在的 assembly trace 明确标记 unavailable。
+    assert.ok(report.receipt)
+    assert.equal(report.receipt.kind, 'context-audit-receipt')
+    assert.equal(report.receipt.agentsFiles[0]!.loadOrder, 1)
+    assert.ok(report.receipt.agentsFiles[0]!.duplicateBlocks[0]!.sha256.length > 20)
+    assert.equal(report.receipt.skills.find((skill) => skill.name === 'skill-a')!.catalogInjected, true)
+    assert.ok(report.receipt.toolSchemas.totalBytes > 0)
+    assert.equal(report.receipt.duplicateMcpEntries.length, 1)
+    assert.equal(report.receipt.shadowedSkills[0]!.name, 'shadowed-skill')
+    assert.equal(report.receipt.trimmed.status, 'unavailable')
 
     // render 输出可读文本
     const render = tool as unknown as { output: { render: Function } }
@@ -135,6 +150,7 @@ test('插件端到端：execute 产出完整审计报告', async () => {
     assert.ok(text.includes('# Context Doctor 审计报告'))
     assert.ok(text.includes('指令链'))
     assert.ok(text.includes('建议'))
+    assert.ok(text.includes('Developer context-audit receipt'))
   } finally {
     rmSync(dir, { recursive: true, force: true })
   }
