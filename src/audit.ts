@@ -2,8 +2,8 @@
  * 审计引擎：context_audit 工具与 HTTP 路由共用的核心逻辑。
  */
 import type { FileSystem } from '@deepseek-ai/dsh-fs'
-import type { SkillService } from '@deepseek-ai/dsh-skill'
-import type { ToolRegistry } from '@deepseek-ai/dsh-tools'
+import type { SkillRegistry } from '@deepseek-ai/dsh-skill'
+import type { ToolRuntime } from '@deepseek-ai/dsh-tools'
 import { findDuplicateDescriptions, findRankShadows } from './analyze.ts'
 import { scanInstructionChain, scanSkillCatalog, scanToolSchemas } from './scan.ts'
 import { estimateTokens, formatBytes, formatTokens } from './tokens.ts'
@@ -46,8 +46,8 @@ export interface AuditReport {
 /** 审计引擎依赖的服务面（工具执行与 HTTP 路由共用）。 */
 export interface AuditDeps {
   fs: FileSystem
-  skills: SkillService
-  tools: ToolRegistry
+  skills: SkillRegistry
+  tools: ToolRuntime
 }
 
 /** 审计选项。 */

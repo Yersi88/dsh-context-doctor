@@ -1,6 +1,6 @@
 import type { FileSystem } from '@deepseek-ai/dsh-fs';
-import type { SkillService } from '@deepseek-ai/dsh-skill';
-import type { ToolRegistry } from '@deepseek-ai/dsh-tools';
+import type { SkillRegistry } from '@deepseek-ai/dsh-skill';
+import type { ToolRuntime } from '@deepseek-ai/dsh-tools';
 import { type DuplicateBlock, type McpSummary } from './analyze.ts';
 /** 单文件审计上限：超过则跳过（防止审计器自身被大文件拖垮）。 */
 export declare const MAX_FILE_BYTES: number;
@@ -37,7 +37,7 @@ export interface SkillCatalogResult {
         count: number;
     }[];
 }
-export declare function scanSkillCatalog(skillList: Awaited<ReturnType<SkillService['list']>>, signal: AbortSignal): Promise<SkillCatalogResult>;
+export declare function scanSkillCatalog(skillList: Awaited<ReturnType<SkillRegistry['list']>>, signal: AbortSignal): Promise<SkillCatalogResult>;
 /** 工具 schema（模型每请求都会看到的固定成本）。 */
 export interface ToolSchemaResult {
     visibleCount: number;
@@ -46,4 +46,4 @@ export interface ToolSchemaResult {
     nativeTokens: number;
     mcp: McpSummary;
 }
-export declare function scanToolSchemas(tools: ToolRegistry, agent: unknown, signal: AbortSignal): Promise<ToolSchemaResult>;
+export declare function scanToolSchemas(tools: ToolRuntime, agent: unknown, signal: AbortSignal): Promise<ToolSchemaResult>;

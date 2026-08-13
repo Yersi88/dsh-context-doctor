@@ -41,12 +41,12 @@ function makeCtx(workspaceDir: string, skills: unknown[] = [], toolSchemas: unkn
     tools: {
       schemas: () => toolSchemas,
     },
-    httpServer: {
+    webServer: {
       register: () => () => {},
     },
     effect: (fn: () => unknown) => fn(),
-    inject: (_name: string, fn: (httpCtx: { httpServer: unknown; effect: (f: unknown) => unknown }) => unknown) =>
-      fn({ httpServer: { register: () => () => {} }, effect: (f: unknown) => (f as () => unknown)() }),
+    inject: (_name: string, fn: (httpCtx: { webServer: unknown; effect: (f: unknown) => unknown }) => unknown) =>
+      fn({ webServer: { register: () => () => {} }, effect: (f: unknown) => (f as () => unknown)() }),
     toolsRegistered: [] as unknown[],
     register: function (def: unknown) { this.toolsRegistered.push(def) },
   }
@@ -69,9 +69,9 @@ test('插件入口：apply 注册 context_audit 工具', () => {
   assert.equal(typeof tool.execute, 'function')
 })
 
-test('插件入口：无 httpServer 环境（headless）下工具仍注册、路由跳过', () => {
+test('插件入口：无 webServer 环境（headless）下工具仍注册、路由跳过', () => {
   const ctx = makeCtx(process.cwd())
-  // 模拟 headless：inject 回调不执行（httpServer 服务不存在）
+  // 模拟 headless：inject 回调不执行（webServer 服务不存在）
   ctx.inject = () => {}
   const registered: unknown[] = []
   ctx.tools.register = (def: unknown) => { registered.push(def) }

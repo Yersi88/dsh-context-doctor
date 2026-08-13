@@ -4,8 +4,8 @@
  */
 import { dirname, join } from 'node:path'
 import type { FileSystem } from '@deepseek-ai/dsh-fs'
-import type { SkillService } from '@deepseek-ai/dsh-skill'
-import type { ToolRegistry } from '@deepseek-ai/dsh-tools'
+import type { SkillRegistry } from '@deepseek-ai/dsh-skill'
+import type { ToolRuntime } from '@deepseek-ai/dsh-tools'
 import { estimateTokens } from './tokens.ts'
 import { findDuplicateBlocks, groupMcpTools, type DuplicateBlock, type McpSummary } from './analyze.ts'
 
@@ -121,7 +121,7 @@ export interface SkillCatalogResult {
 }
 
 export async function scanSkillCatalog(
-  skillList: Awaited<ReturnType<SkillService['list']>>,
+  skillList: Awaited<ReturnType<SkillRegistry['list']>>,
   signal: AbortSignal,
 ): Promise<SkillCatalogResult> {
   void signal
@@ -165,7 +165,7 @@ export interface ToolSchemaResult {
 }
 
 export async function scanToolSchemas(
-  tools: ToolRegistry,
+  tools: ToolRuntime,
   agent: unknown,
   signal: AbortSignal,
 ): Promise<ToolSchemaResult> {
