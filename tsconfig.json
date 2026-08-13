@@ -50,10 +50,10 @@
         "/home/zhenyu/.dsh/source/final-20260813T052845Z/client/ui-conversation/lib/types/client/index.d.ts"
       ],
       "react": [
-        "/home/zhenyu/.dsh/source/staging-20260812T141217Z/node_modules/.pnpm/@types+react@18.3.31/node_modules/@types/react/index.d.ts"
+        "/home/zhenyu/.dsh/source/current/node_modules/.pnpm/@types+react@18.3.31/node_modules/@types/react/index.d.ts"
       ],
       "react/jsx-runtime": [
-        "/home/zhenyu/.dsh/source/staging-20260812T141217Z/node_modules/.pnpm/@types+react@18.3.31/node_modules/@types/react/jsx-runtime.d.ts"
+        "/home/zhenyu/.dsh/source/current/node_modules/.pnpm/@types+react@18.3.31/node_modules/@types/react/jsx-runtime.d.ts"
       ]
     }
   },
