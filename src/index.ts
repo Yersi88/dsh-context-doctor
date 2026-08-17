@@ -82,9 +82,11 @@ export function apply(ctx: Context, config: Config = {}): void {
   // 2. HTTP 路由（浏览器圆环面板的数据通道）。webServer 是可选能力：
   //    有 web 服务时注册（浏览器半区数据源），headless/CLI 环境没有该服务
   //    时自动跳过，context_audit 工具不受影响。
+  // sessions 是可选的（headless 无），用 ctx.get 读取、缺省则不传。
+  const sessions = ctx.get('sessions')
   const routes = makeAuditRoutes({
     deps,
-    sessions: ctx.sessions as never,
+    ...(sessions !== undefined ? { sessions: sessions as never } : {}),
     ...(config.defaultCwd !== undefined ? { defaultCwd: config.defaultCwd } : {}),
     ...(config.cacheTtlMs !== undefined ? { cacheTtlMs: config.cacheTtlMs } : {}),
   })
