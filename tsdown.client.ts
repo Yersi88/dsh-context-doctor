@@ -31,16 +31,17 @@ const CSS_VIRTUAL_SUFFIX = '.mjs'
 
 /**
  * Externals resolved from the loader module table: the shared browser
- * platform modules the shell seeds (mirror of the checkout's
- * `packages/client/web/src/platform.ts` PLATFORM_MODULES) plus the runtime
- * store exemption. Anything else is inlined into the bundle.
+ * platform modules the shell seeds, mirroring the checkout's
+ * `packages/client/web/src/platform.ts` — its `PLATFORM_MODULES` plus the
+ * `PRELOADED_CLIENT_EXTERNALS` runtime-store exemption. Anything else is
+ * inlined into the bundle. Kept in sync with DSH 0.1.0-rc.8, which dropped
+ * `dsh-client-web-react`, `dsh-client-ui-attachment`, and
+ * `dsh-client-schema-form` from the seed table.
  */
 const CLIENT_EXTERNALS: readonly string[] = [
-  'react', 'react/jsx-runtime', 'react-dom', 'react-dom/client', 'cordis',
+  'react', 'react/jsx-runtime', 'react-dom', 'react-dom/client', '@deepseek-ai/cordis',
   '@deepseek-ai/dsh-client-ui-slots',
-  '@deepseek-ai/dsh-client-web-react',
   '@deepseek-ai/dsh-client-ui-primitives',
-  '@deepseek-ai/dsh-client-schema-form',
   '@deepseek-ai/dsh-client-runtime/client',
 ]
 
@@ -49,11 +50,29 @@ const CLIENT_EXTERNALS: readonly string[] = [
  * surfaces with no shared runtime identity. Everything else under
  * @deepseek-ai/* is either a module-table entry (external) or a leak the
  * purity gate rejects.
+ *
+ * `dsh-tools` used to sit in this list, and that was the wrong call: it owns
+ * module-level Symbols (`TOOL_RUNTIME_SCHEDULER`) that the host ToolRuntime
+ * registry is keyed on, so it is precisely not identity-free. Keeping it out
+ * turns a future value-import into a build error rather than a silently
+ * minted second runtime (issue #2; the client half never imported it, but
+ * the gate is where that stays true).
  */
-const INLINE_SAFE = /^@deepseek-ai\/dsh-(host-apiproxy|session|llm|tools|brand)(\/|$)/
+const INLINE_SAFE = /^@deepseek-ai\/dsh-(host-apiproxy|session|llm|brand)(\/|$)/
 
 /** Generated descriptor/codec contribution with no shared runtime identity. */
 const GENERATED_REMOTE = /^@deepseek-ai\/dsh-[a-z0-9]+(?:-[a-z0-9]+)*\/remote$/
+
+/**
+ * Host-half externals: every runtime the harness itself owns. Inlining one of
+ * these mints a second copy of a process singleton — a second `ToolRuntime`,
+ * a second `TOOL_RUNTIME_SCHEDULER` symbol — and the host's
+ * `ctx.tools[TOOL_RUNTIME_SCHEDULER]` lookup then reads `undefined`, taking
+ * down tool dispatch mid-turn (issue #2). The harness resolves these from the
+ * profile's node_modules, so they stay bare imports in the emitted bundle and
+ * must be declared as peerDependencies.
+ */
+const HOST_EXTERNAL = /^(?:@deepseek-ai\/|cordis(?:\/|$))/
 
 /**
  * Build the tsdown configs: the node-half lib build plus the browser client
@@ -76,6 +95,17 @@ export function clientBundle(id: string, libEntry: readonly string[]): UserConfi
     fixedExtension: false,
     dts: false,
     clean: false,
+    external: [HOST_EXTERNAL],
+    plugins: [{
+      // Belt to the `external` braces: tsdown only auto-externalizes declared
+      // dependencies, and a symlinked dev checkout resolves host packages to
+      // absolute paths before the bare id ever reaches the external matcher.
+      // Pinning them external at resolve time is what actually holds.
+      name: 'dsh-host-bundle-externals',
+      resolveId(source: string) {
+        return HOST_EXTERNAL.test(source) ? { id: source, external: true } : null
+      },
+    }],
   }, clientConfig(id)]
 }
 

@@ -12,7 +12,7 @@
 
 <p align="center">
   <a href="LICENSE"><img alt="License BSD-3-Clause" src="https://img.shields.io/badge/License-BSD%203--Clause-blue.svg?style=for-the-badge"></a>
-  <a href="https://github.com/Zhenyu98/dsh-context-doctor/releases"><img alt="Version 0.5.0" src="https://img.shields.io/badge/Version-0.5.0-green.svg?style=for-the-badge"></a>
+  <a href="https://github.com/Zhenyu98/dsh-context-doctor/releases"><img alt="Version 0.5.1" src="https://img.shields.io/badge/Version-0.5.1-green.svg?style=for-the-badge"></a>
   <a href="https://github.com/deepseek-ai/awesome-deepseek-agent"><img alt="For DeepSeek Harness" src="https://img.shields.io/badge/For-DeepSeek%20Harness-8257D0.svg?style=for-the-badge"></a>
 </p>
 
@@ -46,6 +46,8 @@ DSH 会话里，模型每个请求都自动携带一批注入物：层层叠加�
 | 看到告警只能手工翻文件找线索 | 模型可直接调用 `context_audit` 拿到分节报告与按严重度排序的裁剪建议 |
 
 ## Quick Start
+
+> **宿主版本要求**：DSH `>= 0.1.0-rc.6`。`@deepseek-ai/cordis` 与 `@deepseek-ai/dsh-tools` 是 peer 依赖，由宿主 profile 提供；插件不自带这两份运行时（自带会铸造第二个工具调度器，见 [#2](https://github.com/Zhenyu98/dsh-context-doctor/issues/2)）。
 
 ```sh
 # 1. 安装（官方 bundle 插件机制；构建产物已入库，git 源安装无需构建）
@@ -188,7 +190,7 @@ node --test 'tests/*.test.ts'  # node --test（Node ≥ 22.19，原生 TS 支持
 ./scripts/build.sh             # setup + tsc（lib/types）+ tsdown（lib/index.js + lib/client.js）
 ```
 
-测试 25 个用例：token 估算、重复块/描述检测、rank shadow、MCP 分组、指令链端到端（真实临时文件系统 + fake FileSystem）、插件入口与完整 execute 报告链路、会话工作目录路由、HTTP 路由（方法检查 + 真实审计响应 + 缓存上限淘汰）、headless 无 httpServer 环境。
+测试 28 个用例：发布产物纯度守卫（宿主运行时必须外置，见 [#2](https://github.com/Zhenyu98/dsh-context-doctor/issues/2)）、token 估算、重复块/描述检测、rank shadow、MCP 分组、指令链端到端（真实临时文件系统 + fake FileSystem）、插件入口与完整 execute 报告链路、会话工作目录路由、HTTP 路由（方法检查 + 真实审计响应 + 缓存上限淘汰）、headless 无 httpServer 环境。
 
 ## 已知限制（v0.5）
 
