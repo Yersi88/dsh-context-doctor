@@ -15,6 +15,7 @@ declare const en: {
     readonly 'cd.hint': "Open Context Doctor";
     readonly 'cd.total': "Resident total";
     readonly 'cd.tokens': "tokens";
+    readonly 'cd.residentUnit': "tokens resident";
     readonly 'cd.ofBudget': "of {budget} budget";
     readonly 'cd.instructions': "Instruction chain";
     readonly 'cd.skills': "Skills catalog";

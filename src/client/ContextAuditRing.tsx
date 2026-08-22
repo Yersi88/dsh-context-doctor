@@ -3,10 +3,16 @@
  * `conversation.input.right` — a stock DSH slot, so the control appears on an
  * unmodified harness (issue #4).
  *
- * The panel is number-first: one composition bar shows where the resident
- * budget actually goes, and every category expands into the entries behind it
- * (files, skill sources, individual schemas, MCP servers). All copy comes from
- * the locale seat, so it follows the DSH shell's language.
+ * The panel reads as a measuring instrument: a budget rail with the 10k / 30k
+ * thresholds drawn in (so "how close to the warning line" is visible rather
+ * than implied), then a compact table of the four non-overlapping slices, each
+ * expanding into the entries behind it.
+ *
+ * Typography rule: text inherits the DSH shell's own UI font — the panel sets
+ * no family — and monospace is applied only to figures. The previous build put
+ * `ui-monospace, …, Consolas` on the whole panel, a stack with no CJK coverage
+ * at all, so every mixed line rendered Latin in mono and Chinese in whatever
+ * the system fell back to.
  */
 
 import { useCallback, useEffect, useId, useMemo, useRef, useState, type CSSProperties, type ReactElement } from 'react'
@@ -23,28 +29,31 @@ export type ContextAuditRingProps =
   & PropsLocale<typeof NS>
 
 const AUDIT_API = '/api/context-doctor/audit'
-/** Budget the ring measures against; the audit itself is budget-agnostic. */
+/** Budget the rail measures against; the audit itself is budget-agnostic. */
 const FULL_SCALE = 50_000
+/** Where the rail changes colour — drawn as ticks so the rule is visible. */
+const THRESHOLDS = [10_000, 30_000] as const
 /** Entries listed before a breakdown collapses into a "+N more" line. */
 const DETAIL_LIMIT = 6
 
 const TONE = {
-  canvas: 'var(--dsw-alias-bg-layer-1, #121826)',
-  raised: 'var(--dsw-alias-bg-layer-2, #171f2e)',
-  row: 'var(--dsw-alias-bg-layer-3, #1d2637)',
+  canvas: 'var(--dsw-alias-bg-layer-1, #161b24)',
+  raised: 'var(--dsw-alias-bg-layer-2, #1d2430)',
+  sunk: 'var(--dsw-alias-bg-layer-3, #252d3b)',
   border: 'var(--dsw-alias-border-l2, rgba(196, 211, 232, 0.16))',
   borderStrong: 'var(--dsw-alias-border-l3, rgba(196, 211, 232, 0.3))',
-  text: 'var(--dsw-alias-label-primary, #f2f6fc)',
-  muted: 'var(--dsw-alias-label-secondary, #9daabd)',
-  quiet: 'var(--dsw-alias-label-tertiary, #6f7c91)',
-  mint: 'var(--dsw-alias-state-success-primary, #46b97a)',
-  amber: 'var(--dsw-alias-state-warn-primary, #d99a1f)',
-  red: 'var(--dsw-alias-state-error-primary, #e2566a)',
-  blue: 'var(--dsw-alias-brand-primary, #4a7dff)',
-  violet: '#8a6bd8',
+  text: 'var(--dsw-alias-label-primary, #e9edf4)',
+  muted: 'var(--dsw-alias-label-secondary, #9ba5b5)',
+  quiet: 'var(--dsw-alias-label-tertiary, #707a8b)',
+  mint: 'var(--dsw-alias-state-success-primary, #4fc281)',
+  amber: 'var(--dsw-alias-state-warn-primary, #e0a83a)',
+  red: 'var(--dsw-alias-state-error-primary, #ef6a7d)',
+  blue: 'var(--dsw-alias-brand-primary, #7c9bff)',
+  violet: '#a488ea',
 } as const
 
-const MONO = 'ui-monospace, "Cascadia Mono", "SFMono-Regular", Consolas, monospace'
+/** Figures only — never the surrounding text, which has to carry CJK. */
+const MONO = 'ui-monospace, "SFMono-Regular", "Cascadia Mono", Consolas, monospace'
 
 /** One non-overlapping slice of the resident budget. */
 interface Segment {
@@ -72,8 +81,8 @@ function baseName(path: string): string {
 }
 
 function healthLevel(tokens: number): 'mint' | 'amber' | 'red' {
-  if (tokens < 10_000) return 'mint'
-  if (tokens < 30_000) return 'amber'
+  if (tokens < THRESHOLDS[0]) return 'mint'
+  if (tokens < THRESHOLDS[1]) return 'amber'
   return 'red'
 }
 
@@ -85,15 +94,12 @@ function healthLevel(tokens: number): 'mint' | 'amber' | 'red' {
  */
 function buildSegments(report: AuditReport, t: ContextAuditRingProps['t']): Segment[] {
   const { instructions, skills, tools } = report.injected
-  const receipt = report.receipt
+  const items = report.receipt?.toolSchemas.items ?? []
 
-  const schemaRows = (receipt?.toolSchemas.items ?? [])
-    .filter(item => item.server === undefined)
+  const nativeSchemas = items.filter(item => item.server === undefined)
     .sort((a, b) => b.tokens - a.tokens)
     .map(item => ({ name: item.name, tokens: item.tokens }))
-
-  const mcpSchemaRows = (receipt?.toolSchemas.items ?? [])
-    .filter(item => item.server !== undefined)
+  const mcpSchemas = items.filter(item => item.server !== undefined)
     .sort((a, b) => b.tokens - a.tokens)
     .map(item => ({ name: item.name, tokens: item.tokens }))
 
@@ -105,7 +111,9 @@ function buildSegments(report: AuditReport, t: ContextAuditRingProps['t']): Segm
     color: TONE.blue,
     detail: instructions.files.length === 0 ? null : {
       title: t('cd.byFile'),
-      rows: instructions.files.map(file => ({ name: baseName(file.path), tokens: file.tokens })),
+      rows: [...instructions.files]
+        .sort((a, b) => b.tokens - a.tokens)
+        .map(file => ({ name: baseName(file.path), tokens: file.tokens })),
       ...instructions.duplicateBlocks.length > 0 ? {
         note: t('cd.duplicateBlocks', {
           n: instructions.duplicateBlocks.length,
@@ -134,7 +142,7 @@ function buildSegments(report: AuditReport, t: ContextAuditRingProps['t']): Segm
     sub: tools.nativeCount === 0 ? t('cd.emptyCategory') : t('cd.tools.sub', { n: tools.nativeCount }),
     tokens: tools.nativeTokens,
     color: TONE.amber,
-    detail: schemaRows.length === 0 ? null : { title: t('cd.topSchemas'), rows: schemaRows },
+    detail: nativeSchemas.length === 0 ? null : { title: t('cd.topSchemas'), rows: nativeSchemas },
   }, {
     key: 'mcp',
     label: t('cd.mcp'),
@@ -144,9 +152,9 @@ function buildSegments(report: AuditReport, t: ContextAuditRingProps['t']): Segm
     tokens: tools.mcp.totalTokens,
     color: TONE.mint,
     detail: tools.mcp.servers.length === 0 ? null : {
-      title: mcpSchemaRows.length > 0 ? t('cd.topSchemas') : t('cd.byServer'),
-      rows: mcpSchemaRows.length > 0
-        ? mcpSchemaRows
+      title: mcpSchemas.length > 0 ? t('cd.topSchemas') : t('cd.byServer'),
+      rows: mcpSchemas.length > 0
+        ? mcpSchemas
         : [...tools.mcp.servers]
           .sort((a, b) => b.schemaTokens - a.schemaTokens)
           .map(server => ({ name: `${server.server} · ${server.tools}`, tokens: server.schemaTokens })),
@@ -154,22 +162,15 @@ function buildSegments(report: AuditReport, t: ContextAuditRingProps['t']): Segm
   }]
 }
 
-function PulseIcon({ size = 20 }: { size?: number }): ReactElement {
+function PulseIcon({ size = 15 }: { size?: number }): ReactElement {
   return <svg width={size} height={size} viewBox="0 0 24 24" fill="none" aria-hidden="true">
-    <path d="M3 12h4l2.05-5 3.62 10L15.2 12H21" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" />
-  </svg>
-}
-
-function ChevronIcon({ open }: { open: boolean }): ReactElement {
-  return <svg width="12" height="12" viewBox="0 0 24 24" fill="none" aria-hidden="true"
-    style={{ transform: open ? 'rotate(90deg)' : 'none', transition: 'transform 120ms ease' }}>
-    <path d="m9 5 7 7-7 7" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round" />
+    <path d="M3 12h4l2.05-5 3.62 10L15.2 12H21" stroke="currentColor" strokeWidth="1.9" strokeLinecap="round" strokeLinejoin="round" />
   </svg>
 }
 
 function RefreshIcon(): ReactElement {
-  return <svg width="14" height="14" viewBox="0 0 24 24" fill="none" aria-hidden="true">
-    <path d="M20 11a8 8 0 0 0-14.98-3.8M4 5v4h4M4 13a8 8 0 0 0 14.98 3.8M20 19v-4h-4" stroke="currentColor" strokeWidth="1.9" strokeLinecap="round" strokeLinejoin="round" />
+  return <svg width="13" height="13" viewBox="0 0 24 24" fill="none" aria-hidden="true">
+    <path d="M20 11a8 8 0 0 0-14.98-3.8M4 5v4h4M4 13a8 8 0 0 0 14.98 3.8M20 19v-4h-4" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" />
   </svg>
 }
 
@@ -237,6 +238,8 @@ export function ContextAuditRing(props: ContextAuditRingProps): ReactElement {
   const statusHint = level === 'red'
     ? t('cd.heavyHint')
     : suggestions.length > 0 ? t('cd.reviewHint') : t('cd.healthyHint')
+  // A healthy, suggestion-free audit says everything it needs to in the header.
+  const showHealth = level !== 'mint' || suggestions.length > 0
 
   const updated = state.refreshedAt === null ? '—' : (() => {
     const seconds = Math.max(0, Math.round((Date.now() - state.refreshedAt) / 1000))
@@ -248,19 +251,17 @@ export function ContextAuditRing(props: ContextAuditRingProps): ReactElement {
   return <span ref={dockRef} data-context-doctor style={dockStyle}>
     <button type="button" onClick={() => setOpen(value => !value)} title={t('cd.hint')} aria-label={t('cd.title')}
       aria-expanded={open} aria-controls={panelId} style={triggerStyle}>
-      <span style={{ color: accent, display: 'inline-flex' }}><PulseIcon size={15} /></span>
+      <span style={{ color: accent, display: 'inline-flex' }}><PulseIcon /></span>
       <span style={triggerLabelStyle}>{t('cd.title')}</span>
       <span aria-hidden="true" style={{ ...triggerDotStyle, background: accent }} />
     </button>
 
     {open && <section id={panelId} role="dialog" aria-label={t('cd.title')} style={panelStyle}>
-      <header style={headerStyle}>
-        <span style={{ color: accent, display: 'inline-flex' }}><PulseIcon size={17} /></span>
-        <div style={{ minWidth: 0 }}>
-          <h2 style={titleStyle}>{t('cd.title')}</h2>
-          <p style={subtitleStyle}>{t('cd.subtitle')}</p>
-        </div>
-        <span style={{ ...statusPillStyle, color: accent, borderColor: accent }}>{status}</span>
+      <header style={headStyle}>
+        <span style={eyebrowStyle}>{t('cd.title')}</span>
+        <span style={{ ...statusStyle, color: accent }}>
+          <span aria-hidden="true" style={{ ...statusDotStyle, background: accent }} />{status}
+        </span>
       </header>
 
       {state.state === 'error' && <p style={errorStyle}>{t('cd.error')}: {state.error}</p>}
@@ -268,64 +269,59 @@ export function ContextAuditRing(props: ContextAuditRingProps): ReactElement {
       {report === null && state.state !== 'error'
         ? <p style={emptyStyle}>{state.state === 'loading' ? t('cd.loading') : t('cd.emptyState')}</p>
         : report !== null && <>
-          <div style={summaryStyle}>
-            <div style={summaryHeadStyle}>
-              <div style={{ display: 'flex', alignItems: 'baseline', gap: 7, minWidth: 0 }}>
-                <strong style={totalStyle}>{formatK(resident)}</strong>
-                <span style={totalUnitStyle}>{t('cd.tokens')}</span>
-              </div>
-              <span style={budgetStyle}>
-                {Math.round(percent * 100)}% · {t('cd.ofBudget', { budget: formatK(FULL_SCALE) })}
+          <div style={gaugeStyle}>
+            <div style={readStyle}>
+              <strong style={readValueStyle}>{formatK(resident)}</strong>
+              <span style={readUnitStyle}>{t('cd.residentUnit')}</span>
+              <span style={readPercentStyle}>{Math.round(percent * 100)}% / {formatK(FULL_SCALE)}</span>
+            </div>
+            <div style={railStyle} role="img"
+              aria-label={`${formatK(resident)} / ${formatK(FULL_SCALE)}`}>
+              <span style={railTrackStyle}>
+                {segments.filter(segment => segment.tokens > 0).map(segment =>
+                  <span key={segment.key} style={{
+                    width: `${(segment.tokens / FULL_SCALE) * 100}%`,
+                    background: segment.color,
+                    height: '100%',
+                  }} />)}
               </span>
+              {THRESHOLDS.map(threshold => <span key={threshold} aria-hidden="true"
+                style={{ ...tickStyle, left: `${(threshold / FULL_SCALE) * 100}%` }}>
+                <span style={tickLabelStyle}>{formatK(threshold)}</span>
+              </span>)}
             </div>
-            <div style={barTrackStyle} aria-hidden="true">
-              {resident > 0 && segments.filter(segment => segment.tokens > 0).map(segment =>
-                <span key={segment.key} style={{
-                  width: `${(segment.tokens / resident) * 100}%`,
-                  background: segment.color,
-                  height: '100%',
-                }} />)}
-            </div>
-            <span style={totalCaptionStyle}>{t('cd.total')}</span>
           </div>
 
-          <ul style={listStyle}>
+          <ul style={tableStyle}>
             {segments.map(segment => {
               const share = resident === 0 ? 0 : segment.tokens / resident
               const isOpen = expanded === segment.key
               const canExpand = segment.detail !== null
-              return <li key={segment.key} style={listItemStyle}>
+              return <li key={segment.key} style={{ listStyle: 'none' }}>
                 <button type="button" disabled={!canExpand}
                   onClick={() => setExpanded(current => current === segment.key ? null : segment.key)}
                   aria-expanded={isOpen}
                   title={canExpand ? (isOpen ? t('cd.collapse') : t('cd.expand')) : t('cd.noDetail')}
-                  style={{ ...rowStyle, cursor: canExpand ? 'pointer' : 'default', opacity: canExpand ? 1 : 0.62 }}>
-                  <span style={{ ...chevronStyle, color: canExpand ? TONE.quiet : 'transparent' }}>
-                    <ChevronIcon open={isOpen} />
-                  </span>
-                  <span aria-hidden="true" style={{ ...swatchStyle, background: segment.color }} />
+                  style={{ ...rowStyle, cursor: canExpand ? 'pointer' : 'default' }}>
+                  <span aria-hidden="true" style={{
+                    ...keyStyle,
+                    background: canExpand ? segment.color : TONE.border,
+                  }} />
                   <span style={{ minWidth: 0 }}>
-                    <span style={rowLabelStyle}>{segment.label}</span>
+                    <span style={{ ...rowLabelStyle, color: canExpand ? TONE.text : TONE.muted }}>{segment.label}</span>
                     <span style={rowSubStyle}>{segment.sub}</span>
                   </span>
-                  <span style={rowTokensStyle}>{formatK(segment.tokens)}</span>
+                  <span style={rowValueStyle}>{formatK(segment.tokens)}</span>
                   <span style={rowShareStyle}>{Math.round(share * 100)}%</span>
                 </button>
 
                 {isOpen && segment.detail !== null && <div style={detailStyle}>
                   <span style={detailTitleStyle}>{segment.detail.title}</span>
-                  <ol style={detailListStyle}>
-                    {segment.detail.rows.slice(0, DETAIL_LIMIT).map(row => {
-                      const rowShare = segment.tokens === 0 ? 0 : row.tokens / segment.tokens
-                      return <li key={row.name} style={detailRowStyle} title={row.name}>
-                        <span style={detailNameStyle}>{row.name}</span>
-                        <span style={detailBarStyle}>
-                          <span style={{ display: 'block', width: `${Math.max(rowShare * 100, 2)}%`, height: '100%', background: segment.color, borderRadius: 2 }} />
-                        </span>
-                        <span style={detailTokensStyle}>{formatK(row.tokens)}</span>
-                      </li>
-                    })}
-                  </ol>
+                  {segment.detail.rows.slice(0, DETAIL_LIMIT).map(row =>
+                    <span key={row.name} style={detailRowStyle} title={row.name}>
+                      <span style={detailNameStyle}>{row.name}</span>
+                      <span style={detailValueStyle}>{formatK(row.tokens)}</span>
+                    </span>)}
                   {segment.detail.rows.length > DETAIL_LIMIT
                     && <span style={detailMoreStyle}>{t('cd.more', { n: segment.detail.rows.length - DETAIL_LIMIT })}</span>}
                   {segment.detail.note !== undefined && <span style={detailNoteStyle}>{segment.detail.note}</span>}
@@ -334,8 +330,7 @@ export function ContextAuditRing(props: ContextAuditRingProps): ReactElement {
             })}
           </ul>
 
-          <div style={healthStyle}>
-            <strong style={{ ...healthTitleStyle, color: accent }}>{status}</strong>
+          {showHealth && <div style={healthStyle}>
             <p style={healthCopyStyle}>{statusHint}</p>
             {suggestions.length > 0 && <ol style={suggestionListStyle}>
               {suggestions.slice(0, 3).map(suggestion => {
@@ -346,7 +341,7 @@ export function ContextAuditRing(props: ContextAuditRingProps): ReactElement {
                 </li>
               })}
             </ol>}
-          </div>
+          </div>}
         </>}
 
       <footer style={footerStyle}>
@@ -359,58 +354,55 @@ export function ContextAuditRing(props: ContextAuditRingProps): ReactElement {
   </span>
 }
 
-const dockStyle: CSSProperties = { display: 'inline-flex', alignItems: 'center', position: 'relative', fontFamily: MONO }
-const triggerStyle: CSSProperties = { display: 'inline-flex', alignItems: 'center', gap: 6, minHeight: 31, padding: '4px 9px', color: TONE.text, background: TONE.raised, border: `1px solid ${TONE.border}`, borderRadius: 7, cursor: 'pointer', fontFamily: MONO, fontWeight: 430 }
-const triggerLabelStyle: CSSProperties = { color: TONE.text, fontSize: 12, fontWeight: 430, whiteSpace: 'nowrap' }
+/* Text inherits the shell's UI font on purpose; only figures set MONO. */
+const dockStyle: CSSProperties = { display: 'inline-flex', alignItems: 'center', position: 'relative' }
+const triggerStyle: CSSProperties = { display: 'inline-flex', alignItems: 'center', gap: 6, minHeight: 31, padding: '4px 9px', color: TONE.text, background: TONE.raised, border: `1px solid ${TONE.border}`, borderRadius: 7, cursor: 'pointer', font: 'inherit', fontSize: 12, fontWeight: 500 }
+const triggerLabelStyle: CSSProperties = { whiteSpace: 'nowrap' }
 const triggerDotStyle: CSSProperties = { width: 7, height: 7, marginLeft: 1, borderRadius: 99 }
 
-const panelStyle: CSSProperties = { position: 'absolute', zIndex: 1000, right: 0, bottom: 'calc(100% + 12px)', width: 428, maxWidth: 'calc(100vw - 24px)', maxHeight: 'min(70vh, 620px)', overflowX: 'hidden', overflowY: 'auto', color: TONE.text, background: TONE.canvas, border: `1px solid ${TONE.borderStrong}`, borderRadius: 12, boxShadow: '0 18px 44px rgba(3, 8, 18, 0.34)', textAlign: 'left', fontFamily: MONO, fontWeight: 400 }
-const headerStyle: CSSProperties = { display: 'grid', gridTemplateColumns: '20px minmax(0, 1fr) auto', alignItems: 'center', columnGap: 10, padding: '14px 16px 13px', borderBottom: `1px solid ${TONE.border}` }
-const titleStyle: CSSProperties = { margin: 0, color: TONE.text, fontFamily: MONO, fontSize: 14, fontWeight: 480, letterSpacing: '-0.01em', lineHeight: 1.2 }
-const subtitleStyle: CSSProperties = { margin: '3px 0 0', color: TONE.muted, fontFamily: MONO, fontSize: 11.5, fontWeight: 400, lineHeight: 1.2 }
-const statusPillStyle: CSSProperties = { padding: '3px 9px', border: '1px solid', borderRadius: 99, fontSize: 11, fontWeight: 460, whiteSpace: 'nowrap' }
+const panelStyle: CSSProperties = { position: 'absolute', zIndex: 1000, right: 0, bottom: 'calc(100% + 12px)', width: 424, maxWidth: 'calc(100vw - 24px)', maxHeight: 'min(70vh, 620px)', overflowX: 'hidden', overflowY: 'auto', color: TONE.text, background: TONE.canvas, border: `1px solid ${TONE.borderStrong}`, borderRadius: 12, boxShadow: '0 2px 6px rgba(0, 0, 0, .18), 0 20px 46px rgba(0, 0, 0, .3)', textAlign: 'left' }
+
+const headStyle: CSSProperties = { display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 10, padding: '14px 16px 0' }
+const eyebrowStyle: CSSProperties = { color: TONE.quiet, fontSize: 10.5, fontWeight: 600, letterSpacing: '0.14em' }
+const statusStyle: CSSProperties = { display: 'inline-flex', alignItems: 'center', gap: 6, fontSize: 12, fontWeight: 500 }
+const statusDotStyle: CSSProperties = { width: 6, height: 6, borderRadius: 99 }
 
 const errorStyle: CSSProperties = { margin: '12px 16px 0', color: TONE.red, fontSize: 12, lineHeight: 1.45 }
 const emptyStyle: CSSProperties = { margin: 0, padding: '34px 16px', color: TONE.muted, fontSize: 12.5, textAlign: 'center' }
 
-const summaryStyle: CSSProperties = { padding: '15px 16px 14px', borderBottom: `1px solid ${TONE.border}` }
-const summaryHeadStyle: CSSProperties = { display: 'flex', alignItems: 'baseline', justifyContent: 'space-between', gap: 12 }
-const totalStyle: CSSProperties = { color: TONE.text, fontSize: 27, fontWeight: 460, lineHeight: 1, letterSpacing: '-0.035em', fontVariantNumeric: 'tabular-nums' }
-const totalUnitStyle: CSSProperties = { color: TONE.muted, fontSize: 12, fontWeight: 400 }
-const budgetStyle: CSSProperties = { color: TONE.muted, fontSize: 11.5, fontWeight: 400, fontVariantNumeric: 'tabular-nums', whiteSpace: 'nowrap' }
-const barTrackStyle: CSSProperties = { display: 'flex', gap: 2, height: 7, margin: '12px 0 0', overflow: 'hidden', background: TONE.row, borderRadius: 99 }
-const totalCaptionStyle: CSSProperties = { display: 'block', marginTop: 9, color: TONE.quiet, fontSize: 11, fontWeight: 400 }
+const gaugeStyle: CSSProperties = { padding: '12px 16px 0' }
+const readStyle: CSSProperties = { display: 'flex', alignItems: 'baseline', gap: 7 }
+const readValueStyle: CSSProperties = { fontFamily: MONO, fontSize: 29, fontWeight: 500, letterSpacing: '-0.035em', lineHeight: 1, fontVariantNumeric: 'tabular-nums' }
+const readUnitStyle: CSSProperties = { color: TONE.muted, fontSize: 12 }
+const readPercentStyle: CSSProperties = { marginLeft: 'auto', color: TONE.muted, fontFamily: MONO, fontSize: 12, fontVariantNumeric: 'tabular-nums' }
+const railStyle: CSSProperties = { position: 'relative', height: 23, marginTop: 11 }
+const railTrackStyle: CSSProperties = { position: 'absolute', inset: '0 0 auto', display: 'flex', height: 8, overflow: 'hidden', background: TONE.sunk, borderRadius: 3 }
+const tickStyle: CSSProperties = { position: 'absolute', top: 0, width: 1, height: 12, background: TONE.borderStrong }
+const tickLabelStyle: CSSProperties = { position: 'absolute', top: 13, left: '50%', transform: 'translateX(-50%)', color: TONE.quiet, fontFamily: MONO, fontSize: 9.5, fontVariantNumeric: 'tabular-nums' }
 
-const listStyle: CSSProperties = { margin: 0, padding: '5px 8px 7px', listStyle: 'none', borderBottom: `1px solid ${TONE.border}` }
-const listItemStyle: CSSProperties = { listStyle: 'none' }
-const rowStyle: CSSProperties = { display: 'grid', width: '100%', gridTemplateColumns: '16px 9px minmax(0, 1fr) auto 38px', alignItems: 'center', columnGap: 9, padding: '9px 8px', color: TONE.text, background: 'transparent', border: 0, borderRadius: 7, textAlign: 'left', fontFamily: MONO }
-const chevronStyle: CSSProperties = { display: 'inline-flex', justifyContent: 'center' }
-const swatchStyle: CSSProperties = { width: 9, height: 9, borderRadius: 3 }
-const rowLabelStyle: CSSProperties = { display: 'block', overflow: 'hidden', color: TONE.text, fontSize: 12.5, fontWeight: 440, textOverflow: 'ellipsis', whiteSpace: 'nowrap' }
-const rowSubStyle: CSSProperties = { display: 'block', marginTop: 2, overflow: 'hidden', color: TONE.quiet, fontSize: 11, fontWeight: 400, textOverflow: 'ellipsis', whiteSpace: 'nowrap' }
-const rowTokensStyle: CSSProperties = { color: TONE.text, fontSize: 12.5, fontWeight: 440, fontVariantNumeric: 'tabular-nums', whiteSpace: 'nowrap' }
-const rowShareStyle: CSSProperties = { color: TONE.muted, fontSize: 12, fontWeight: 430, fontVariantNumeric: 'tabular-nums', textAlign: 'right' }
+const tableStyle: CSSProperties = { margin: '16px 0 0', padding: 0, listStyle: 'none', borderTop: `1px solid ${TONE.border}` }
+const rowStyle: CSSProperties = { display: 'grid', width: '100%', gridTemplateColumns: '3px minmax(0, 1fr) 62px 40px', alignItems: 'center', columnGap: 11, padding: '10px 16px', color: TONE.text, background: 'transparent', border: 0, borderBottom: `1px solid ${TONE.border}`, textAlign: 'left', font: 'inherit' }
+const keyStyle: CSSProperties = { width: 3, height: 22, borderRadius: 2 }
+const rowLabelStyle: CSSProperties = { display: 'block', overflow: 'hidden', fontSize: 12.5, fontWeight: 500, textOverflow: 'ellipsis', whiteSpace: 'nowrap' }
+const rowSubStyle: CSSProperties = { display: 'block', marginTop: 2, overflow: 'hidden', color: TONE.quiet, fontSize: 11, textOverflow: 'ellipsis', whiteSpace: 'nowrap' }
+const rowValueStyle: CSSProperties = { fontFamily: MONO, fontSize: 12.5, fontVariantNumeric: 'tabular-nums', textAlign: 'right' }
+const rowShareStyle: CSSProperties = { color: TONE.muted, fontFamily: MONO, fontSize: 12, fontVariantNumeric: 'tabular-nums', textAlign: 'right' }
 
-const detailStyle: CSSProperties = { display: 'flex', flexDirection: 'column', gap: 7, margin: '0 8px 9px 33px', padding: '10px 11px', background: TONE.row, borderRadius: 8 }
-// No uppercasing here: the dictionaries mix CJK with Latin product nouns, and
-// `text-transform` would shout the Latin half ("占用最大的 SCHEMA").
-const detailTitleStyle: CSSProperties = { color: TONE.quiet, fontSize: 10.5, fontWeight: 460 }
-const detailListStyle: CSSProperties = { display: 'flex', flexDirection: 'column', gap: 6, margin: 0, padding: 0, listStyle: 'none' }
-const detailRowStyle: CSSProperties = { display: 'grid', gridTemplateColumns: 'minmax(0, 1fr) 54px 42px', alignItems: 'center', columnGap: 9 }
-const detailNameStyle: CSSProperties = { overflow: 'hidden', color: TONE.muted, fontSize: 11.5, fontWeight: 400, textOverflow: 'ellipsis', whiteSpace: 'nowrap' }
-const detailBarStyle: CSSProperties = { height: 4, background: TONE.borderStrong, borderRadius: 2, overflow: 'hidden' }
-const detailTokensStyle: CSSProperties = { color: TONE.text, fontSize: 11.5, fontWeight: 430, fontVariantNumeric: 'tabular-nums', textAlign: 'right' }
-const detailMoreStyle: CSSProperties = { color: TONE.quiet, fontSize: 11, fontWeight: 400 }
-const detailNoteStyle: CSSProperties = { marginTop: 1, color: TONE.amber, fontSize: 11, fontWeight: 400, lineHeight: 1.4 }
+const detailStyle: CSSProperties = { display: 'flex', flexDirection: 'column', gap: 4, padding: '9px 16px 11px 30px', background: TONE.raised, borderBottom: `1px solid ${TONE.border}` }
+const detailTitleStyle: CSSProperties = { marginBottom: 2, color: TONE.quiet, fontSize: 10.5, fontWeight: 500 }
+const detailRowStyle: CSSProperties = { display: 'grid', gridTemplateColumns: 'minmax(0, 1fr) 58px', alignItems: 'baseline', columnGap: 10 }
+const detailNameStyle: CSSProperties = { overflow: 'hidden', color: TONE.muted, fontSize: 11.5, textOverflow: 'ellipsis', whiteSpace: 'nowrap' }
+const detailValueStyle: CSSProperties = { color: TONE.text, fontFamily: MONO, fontSize: 11.5, fontVariantNumeric: 'tabular-nums', textAlign: 'right' }
+const detailMoreStyle: CSSProperties = { marginTop: 2, color: TONE.quiet, fontSize: 11 }
+const detailNoteStyle: CSSProperties = { marginTop: 4, color: TONE.amber, fontSize: 11, lineHeight: 1.4 }
 
-const healthStyle: CSSProperties = { padding: '13px 16px 14px', borderBottom: `1px solid ${TONE.border}` }
-const healthTitleStyle: CSSProperties = { display: 'block', fontSize: 12.5, fontWeight: 470 }
-const healthCopyStyle: CSSProperties = { margin: '5px 0 0', color: TONE.muted, fontSize: 11.5, fontWeight: 400, lineHeight: 1.5 }
-const suggestionListStyle: CSSProperties = { display: 'flex', flexDirection: 'column', gap: 6, margin: '11px 0 0', padding: 0, listStyle: 'none' }
-const suggestionStyle: CSSProperties = { display: 'grid', gridTemplateColumns: '7px minmax(0, 1fr)', alignItems: 'start', columnGap: 9 }
+const healthStyle: CSSProperties = { padding: '12px 16px 13px', borderBottom: `1px solid ${TONE.border}` }
+const healthCopyStyle: CSSProperties = { margin: 0, color: TONE.muted, fontSize: 11.5, lineHeight: 1.5 }
+const suggestionListStyle: CSSProperties = { display: 'flex', flexDirection: 'column', gap: 6, margin: '10px 0 0', padding: 0, listStyle: 'none' }
+const suggestionStyle: CSSProperties = { display: 'grid', gridTemplateColumns: '6px minmax(0, 1fr)', alignItems: 'start', columnGap: 9 }
 const suggestionDotStyle: CSSProperties = { width: 6, height: 6, marginTop: 5, borderRadius: 99 }
-const suggestionCopyStyle: CSSProperties = { color: TONE.muted, fontSize: 11.5, fontWeight: 400, lineHeight: 1.45 }
+const suggestionCopyStyle: CSSProperties = { color: TONE.muted, fontSize: 11.5, lineHeight: 1.45 }
 
 const footerStyle: CSSProperties = { display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 12, padding: '11px 16px 12px' }
-const updatedStyle: CSSProperties = { color: TONE.quiet, fontSize: 11, fontWeight: 400, fontVariantNumeric: 'tabular-nums' }
-const refreshStyle: CSSProperties = { display: 'inline-flex', alignItems: 'center', gap: 6, padding: 0, color: TONE.blue, background: 'transparent', border: 0, cursor: 'pointer', fontFamily: MONO, fontSize: 12, fontWeight: 440 }
+const updatedStyle: CSSProperties = { color: TONE.quiet, fontSize: 11, fontVariantNumeric: 'tabular-nums' }
+const refreshStyle: CSSProperties = { display: 'inline-flex', alignItems: 'center', gap: 6, padding: 0, color: TONE.blue, background: 'transparent', border: 0, cursor: 'pointer', font: 'inherit', fontSize: 12, fontWeight: 500 }

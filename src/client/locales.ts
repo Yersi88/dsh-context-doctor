@@ -19,6 +19,7 @@ const en = {
   // Budget summary
   'cd.total': 'Resident total',
   'cd.tokens': 'tokens',
+  'cd.residentUnit': 'tokens resident',
   'cd.ofBudget': 'of {budget} budget',
 
   // Categories
@@ -76,6 +77,7 @@ const zh: Record<keyof typeof en, string> = {
 
   'cd.total': '常驻合计',
   'cd.tokens': 'token',
+  'cd.residentUnit': 'token 常驻',
   'cd.ofBudget': '预算 {budget}',
 
   'cd.instructions': '指令链',
