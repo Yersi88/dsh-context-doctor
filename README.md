@@ -12,7 +12,7 @@
 
 <p align="center">
   <a href="LICENSE"><img alt="License BSD-3-Clause" src="https://img.shields.io/badge/License-BSD%203--Clause-blue.svg?style=for-the-badge"></a>
-  <a href="https://github.com/Zhenyu98/dsh-context-doctor/releases"><img alt="Version 0.5.2" src="https://img.shields.io/badge/Version-0.5.2-green.svg?style=for-the-badge"></a>
+  <a href="https://github.com/Zhenyu98/dsh-context-doctor/releases"><img alt="Version 0.5.3" src="https://img.shields.io/badge/Version-0.5.3-green.svg?style=for-the-badge"></a>
   <a href="https://github.com/deepseek-ai/awesome-deepseek-agent"><img alt="For DeepSeek Harness" src="https://img.shields.io/badge/For-DeepSeek%20Harness-8257D0.svg?style=for-the-badge"></a>
 </p>
 
@@ -47,7 +47,7 @@ DSH 会话里，模型每个请求都自动携带一批注入物：层层叠加�
 
 ## Quick Start
 
-> **宿主版本要求**：DSH `>= 0.1.0-rc.6`。`@deepseek-ai/cordis` 与 `@deepseek-ai/dsh-tools` 是 peer 依赖，由宿主 profile 提供；插件不自带这两份运行时（自带会铸造第二个工具调度器，见 [#2](https://github.com/Zhenyu98/dsh-context-doctor/issues/2)）。
+> **宿主版本要求**：DSH `>= 0.1.0-rc.6`（含 0.1.1-rc 线；已对 0.1.1-rc.2 验证）。`@deepseek-ai/cordis` 与 `@deepseek-ai/dsh-tools` 是 peer 依赖，由宿主 profile 提供；插件不自带这两份运行时（自带会铸造第二个工具调度器，见 [#2](https://github.com/Zhenyu98/dsh-context-doctor/issues/2)）。
 
 ```sh
 # 1. 安装（官方 bundle 插件机制；构建产物已入库，git 源安装无需构建）
