@@ -133,3 +133,41 @@ test('makeAuditRoutes: 缓存上限淘汰最旧条目', async () => {
   assert.equal(again.status, 200)
   assert.ok(listCalls > before, '最早条目被淘汰后应重新审计')
 })
+
+test('makeAuditRoutes: detail=developer 附带 receipt，且与 summary 分开缓存', async () => {
+  let listCalls = 0
+  const routes = makeAuditRoutes({
+    deps: {
+      fs: {} as never,
+      skills: { list: async () => { listCalls++; return [] } } as never,
+      tools: {} as never,
+    },
+    defaultCwd: '/tmp/detail',
+    cacheTtlMs: 60_000,
+  })
+
+  // 默认层级：只有摘要，没有 receipt
+  const summary = await callHandler(routes[0]!.handler, '/api/context-doctor/audit?cwd=/tmp/detail')
+  assert.equal(summary.status, 200)
+  const summaryBody = summary.body as { ok: boolean; report: AuditReport }
+  assert.equal(summaryBody.report.receipt, undefined)
+
+  // developer 层级：同一个 cwd，但必须重新审计而不是命中 summary 的缓存
+  const before = listCalls
+  const developer = await callHandler(routes[0]!.handler, '/api/context-doctor/audit?cwd=/tmp/detail&detail=developer')
+  assert.equal(developer.status, 200)
+  assert.ok(listCalls > before, 'detail 层级不同必须绕开 summary 缓存')
+  const developerBody = developer.body as { ok: boolean; report: AuditReport }
+  assert.ok(developerBody.report.receipt !== undefined, 'detail=developer 应附带 receipt')
+  assert.equal(developerBody.report.receipt?.detail, 'developer')
+
+  // 同层级重复请求命中缓存
+  const cached = listCalls
+  await callHandler(routes[0]!.handler, '/api/context-doctor/audit?cwd=/tmp/detail&detail=developer')
+  assert.equal(listCalls, cached, '同 cwd 同层级应命中缓存')
+
+  // 未知取值退回 summary
+  const bogus = await callHandler(routes[0]!.handler, '/api/context-doctor/audit?cwd=/tmp/detail&detail=nonsense')
+  const bogusBody = bogus.body as { ok: boolean; report: AuditReport }
+  assert.equal(bogusBody.report.receipt, undefined)
+})

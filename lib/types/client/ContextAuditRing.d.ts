@@ -2,8 +2,11 @@
  * Context Doctor's composer control, seated in the input tool row through
  * `conversation.input.right` — a stock DSH slot, so the control appears on an
  * unmodified harness (issue #4).
- * The panel deliberately uses one lightweight, mono-inspired visual language
- * in both DSH themes instead of inheriting the surrounding chat typography.
+ *
+ * The panel is number-first: one composition bar shows where the resident
+ * budget actually goes, and every category expands into the entries behind it
+ * (files, skill sources, individual schemas, MCP servers). All copy comes from
+ * the locale seat, so it follows the DSH shell's language.
  */
 import { type ReactElement } from 'react';
 import type { PropsLocale, PropsRuntime, PropsStore } from '@deepseek-ai/dsh-client-ui-slots';

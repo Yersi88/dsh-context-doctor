@@ -2,13 +2,17 @@
  * Context Doctor's composer control, seated in the input tool row through
  * `conversation.input.right` — a stock DSH slot, so the control appears on an
  * unmodified harness (issue #4).
- * The panel deliberately uses one lightweight, mono-inspired visual language
- * in both DSH themes instead of inheriting the surrounding chat typography.
+ *
+ * The panel is number-first: one composition bar shows where the resident
+ * budget actually goes, and every category expands into the entries behind it
+ * (files, skill sources, individual schemas, MCP servers). All copy comes from
+ * the locale seat, so it follows the DSH shell's language.
  */
 
-import { useCallback, useEffect, useId, useRef, useState, type CSSProperties, type ReactElement } from 'react'
+import { useCallback, useEffect, useId, useMemo, useRef, useState, type CSSProperties, type ReactElement } from 'react'
 import type { PropsLocale, PropsRuntime, PropsStore } from '@deepseek-ai/dsh-client-ui-slots'
 import type {} from '@deepseek-ai/dsh-client-ui-conversation/client'
+import type { AuditReport } from '../audit.ts'
 import type { AuditUiState } from './store.ts'
 import type { createAuditStore } from './store.ts'
 import { NS } from './locales.ts'
@@ -19,83 +23,164 @@ export type ContextAuditRingProps =
   & PropsLocale<typeof NS>
 
 const AUDIT_API = '/api/context-doctor/audit'
+/** Budget the ring measures against; the audit itself is budget-agnostic. */
 const FULL_SCALE = 50_000
+/** Entries listed before a breakdown collapses into a "+N more" line. */
+const DETAIL_LIMIT = 6
 
 const TONE = {
-  canvas: 'var(--dsw-alias-bg-layer-2, #101722)',
-  panel: 'var(--dsw-alias-bg-layer-1, #171f2b)',
-  row: 'var(--dsw-alias-bg-layer-3, #1d2735)',
+  canvas: 'var(--dsw-alias-bg-layer-1, #121826)',
+  raised: 'var(--dsw-alias-bg-layer-2, #171f2e)',
+  row: 'var(--dsw-alias-bg-layer-3, #1d2637)',
   border: 'var(--dsw-alias-border-l2, rgba(196, 211, 232, 0.16))',
-  borderStrong: 'var(--dsw-alias-border-l3, rgba(196, 211, 232, 0.31))',
+  borderStrong: 'var(--dsw-alias-border-l3, rgba(196, 211, 232, 0.3))',
   text: 'var(--dsw-alias-label-primary, #f2f6fc)',
   muted: 'var(--dsw-alias-label-secondary, #9daabd)',
-  quiet: 'var(--dsw-alias-label-tertiary, #718096)',
-  mint: 'color-mix(in srgb, var(--dsw-alias-state-success-primary, #78dda0) 76%, var(--dsw-alias-label-secondary, #9daabd))',
-  amber: 'var(--dsw-alias-state-warn-primary, #f6c652)',
-  red: 'var(--dsw-alias-state-error-primary, #ff8592)',
-  blue: 'var(--dsw-alias-brand-primary, #8ec5ff)',
+  quiet: 'var(--dsw-alias-label-tertiary, #6f7c91)',
+  mint: 'var(--dsw-alias-state-success-primary, #46b97a)',
+  amber: 'var(--dsw-alias-state-warn-primary, #d99a1f)',
+  red: 'var(--dsw-alias-state-error-primary, #e2566a)',
+  blue: 'var(--dsw-alias-brand-primary, #4a7dff)',
+  violet: '#8a6bd8',
 } as const
 
 const MONO = 'ui-monospace, "Cascadia Mono", "SFMono-Regular", Consolas, monospace'
 
-function healthTone(tokens: number): 'mint' | 'amber' | 'red' {
-  if (tokens < 10_000) return 'mint'
-  if (tokens < 30_000) return 'amber'
-  return 'red'
+/** One non-overlapping slice of the resident budget. */
+interface Segment {
+  key: 'instructions' | 'skills' | 'tools' | 'mcp'
+  label: string
+  sub: string
+  tokens: number
+  color: string
+  detail: { title: string; rows: { name: string; tokens: number }[]; note?: string } | null
 }
 
 function formatK(tokens: number): string {
   if (tokens < 1000) return String(tokens)
   const value = tokens / 1000
-  return `${value >= 100 ? Math.round(value) : value.toFixed(1)}k`
+  if (value >= 100 || Number.isInteger(value)) return `${Math.round(value)}k`
+  return `${value.toFixed(1)}k`
 }
 
-function updatedLabel(refreshedAt: number | null): string {
-  if (refreshedAt === null) return '—'
-  const seconds = Math.max(0, Math.round((Date.now() - refreshedAt) / 1000))
-  if (seconds < 10) return 'just now'
-  if (seconds < 60) return `${seconds}s ago`
-  return `${Math.round(seconds / 60)}m ago`
+/** Trailing path segment; the full path stays in the row's `title`. */
+function baseName(path: string): string {
+  const parts = path.split(/[/\\]/).filter(Boolean)
+  const last = parts.at(-1) ?? path
+  const parent = parts.at(-2)
+  return parent === undefined ? last : `${parent}/${last}`
+}
+
+function healthLevel(tokens: number): 'mint' | 'amber' | 'red' {
+  if (tokens < 10_000) return 'mint'
+  if (tokens < 30_000) return 'amber'
+  return 'red'
+}
+
+/**
+ * Build the four non-overlapping budget slices.
+ *
+ * MCP schema tokens are a subset of `tools.schemaTokens`, so the tool slice
+ * carries `nativeTokens` only — otherwise the shares sum past 100%.
+ */
+function buildSegments(report: AuditReport, t: ContextAuditRingProps['t']): Segment[] {
+  const { instructions, skills, tools } = report.injected
+  const receipt = report.receipt
+
+  const schemaRows = (receipt?.toolSchemas.items ?? [])
+    .filter(item => item.server === undefined)
+    .sort((a, b) => b.tokens - a.tokens)
+    .map(item => ({ name: item.name, tokens: item.tokens }))
+
+  const mcpSchemaRows = (receipt?.toolSchemas.items ?? [])
+    .filter(item => item.server !== undefined)
+    .sort((a, b) => b.tokens - a.tokens)
+    .map(item => ({ name: item.name, tokens: item.tokens }))
+
+  return [{
+    key: 'instructions',
+    label: t('cd.instructions'),
+    sub: instructions.files.length === 0 ? t('cd.emptyCategory') : t('cd.instructions.sub', { n: instructions.files.length }),
+    tokens: instructions.totalTokens,
+    color: TONE.blue,
+    detail: instructions.files.length === 0 ? null : {
+      title: t('cd.byFile'),
+      rows: instructions.files.map(file => ({ name: baseName(file.path), tokens: file.tokens })),
+      ...instructions.duplicateBlocks.length > 0 ? {
+        note: t('cd.duplicateBlocks', {
+          n: instructions.duplicateBlocks.length,
+          tokens: instructions.duplicateBlocks.reduce((sum, block) => sum + block.tokens, 0),
+        }),
+      } : {},
+    },
+  }, {
+    key: 'skills',
+    label: t('cd.skills'),
+    sub: skills.catalogCount === 0 ? t('cd.emptyCategory') : t('cd.skills.sub', { n: skills.catalogCount }),
+    tokens: skills.catalogDescriptionTokens,
+    color: TONE.violet,
+    detail: skills.bySource.length === 0 ? null : {
+      title: t('cd.bySource'),
+      rows: [...skills.bySource]
+        .sort((a, b) => b.descriptionTokens - a.descriptionTokens)
+        .map(source => ({ name: `${source.source} · ${source.count}`, tokens: source.descriptionTokens })),
+      ...skills.duplicateDescriptions.length > 0
+        ? { note: t('cd.duplicateSkills', { n: skills.duplicateDescriptions.length }) }
+        : report.conflicts.length > 0 ? { note: t('cd.shadowed', { n: report.conflicts.length }) } : {},
+    },
+  }, {
+    key: 'tools',
+    label: t('cd.tools'),
+    sub: tools.nativeCount === 0 ? t('cd.emptyCategory') : t('cd.tools.sub', { n: tools.nativeCount }),
+    tokens: tools.nativeTokens,
+    color: TONE.amber,
+    detail: schemaRows.length === 0 ? null : { title: t('cd.topSchemas'), rows: schemaRows },
+  }, {
+    key: 'mcp',
+    label: t('cd.mcp'),
+    sub: tools.mcp.totalTools === 0
+      ? t('cd.emptyCategory')
+      : t('cd.mcp.sub', { n: tools.mcp.totalTools, servers: tools.mcp.servers.length }),
+    tokens: tools.mcp.totalTokens,
+    color: TONE.mint,
+    detail: tools.mcp.servers.length === 0 ? null : {
+      title: mcpSchemaRows.length > 0 ? t('cd.topSchemas') : t('cd.byServer'),
+      rows: mcpSchemaRows.length > 0
+        ? mcpSchemaRows
+        : [...tools.mcp.servers]
+          .sort((a, b) => b.schemaTokens - a.schemaTokens)
+          .map(server => ({ name: `${server.server} · ${server.tools}`, tokens: server.schemaTokens })),
+    },
+  }]
 }
 
 function PulseIcon({ size = 20 }: { size?: number }): ReactElement {
   return <svg width={size} height={size} viewBox="0 0 24 24" fill="none" aria-hidden="true">
     <path d="M3 12h4l2.05-5 3.62 10L15.2 12H21" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" />
-    <path d="M3.6 6.8C5.1 4.86 8.06 4.4 10.06 6L12 7.58 13.94 6c2-1.6 4.96-1.14 6.46.8 1.72 2.23 1.43 5.42-.66 7.29L12 21l-7.74-6.91C2.17 12.22 1.88 9.03 3.6 6.8Z" stroke="currentColor" strokeWidth="1.45" strokeLinecap="round" strokeLinejoin="round" />
   </svg>
 }
 
-function MetricIcon({ type }: { type: 'instructions' | 'skills' | 'tools' | 'mcp' }): ReactElement {
-  if (type === 'skills') return <svg viewBox="0 0 24 24" fill="none" aria-hidden="true"><path d="M4.5 5.5A3.5 3.5 0 0 1 8 4h3.5v15H8a3.5 3.5 0 0 0-3.5 1.5V5.5ZM19.5 5.5A3.5 3.5 0 0 0 16 4h-3.5v15H16a3.5 3.5 0 0 1 3.5 1.5V5.5Z" stroke="currentColor" strokeWidth="1.55" strokeLinejoin="round" /></svg>
-  if (type === 'tools') return <svg viewBox="0 0 24 24" fill="none" aria-hidden="true"><path d="m8.2 7-5 5 5 5M15.8 7l5 5-5 5M13.5 4l-3 16" stroke="currentColor" strokeWidth="1.65" strokeLinecap="round" strokeLinejoin="round" /></svg>
-  if (type === 'mcp') return <svg viewBox="0 0 24 24" fill="none" aria-hidden="true"><path d="M9 3v6m6-6v6M7 9h10v3a5 5 0 0 1-10 0V9Zm5 8v4m-3 0h6" stroke="currentColor" strokeWidth="1.65" strokeLinecap="round" strokeLinejoin="round" /></svg>
-  return <svg viewBox="0 0 24 24" fill="none" aria-hidden="true"><path d="M5 5h14M5 11h14M5 17h8M18 15.5v4M16 17.5h4" stroke="currentColor" strokeWidth="1.65" strokeLinecap="round" strokeLinejoin="round" /></svg>
+function ChevronIcon({ open }: { open: boolean }): ReactElement {
+  return <svg width="12" height="12" viewBox="0 0 24 24" fill="none" aria-hidden="true"
+    style={{ transform: open ? 'rotate(90deg)' : 'none', transition: 'transform 120ms ease' }}>
+    <path d="m9 5 7 7-7 7" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round" />
+  </svg>
 }
 
 function RefreshIcon(): ReactElement {
-  return <svg width="21" height="21" viewBox="0 0 24 24" fill="none" aria-hidden="true"><path d="M20 11a8 8 0 0 0-14.98-3.8M4 5v4h4M4 13a8 8 0 0 0 14.98 3.8M20 19v-4h-4" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" /></svg>
-}
-
-function CheckIcon(): ReactElement {
-  return <svg width="21" height="21" viewBox="0 0 24 24" fill="none" aria-hidden="true"><circle cx="12" cy="12" r="9" stroke="currentColor" strokeWidth="1.7" /><path d="m8.2 12.2 2.45 2.4 5.15-5.25" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" /></svg>
-}
-
-function BudgetRing({ percent, color }: { percent: number; color: string }): ReactElement {
-  const radius = 43
-  const circumference = 2 * Math.PI * radius
-  const progress = Math.max(0.035, Math.min(0.965, percent))
-  return <svg width="188" height="188" viewBox="0 0 112 112" aria-hidden="true" style={{ display: 'block', transform: 'rotate(-90deg)' }}>
-    <circle cx="56" cy="56" r={radius} fill="none" stroke={TONE.borderStrong} strokeWidth="5.7" />
-    <circle cx="56" cy="56" r={radius} fill="none" stroke={color} strokeWidth="5.7" strokeLinecap="round" strokeDasharray={`${progress * circumference} ${circumference}`} />
+  return <svg width="14" height="14" viewBox="0 0 24 24" fill="none" aria-hidden="true">
+    <path d="M20 11a8 8 0 0 0-14.98-3.8M4 5v4h4M4 13a8 8 0 0 0 14.98 3.8M20 19v-4h-4" stroke="currentColor" strokeWidth="1.9" strokeLinecap="round" strokeLinejoin="round" />
   </svg>
 }
 
 /** Resident control in the tool row, just before Send. */
 export function ContextAuditRing(props: ContextAuditRingProps): ReactElement {
-  const { useStore, actions, sessionId } = props
+  const { useStore, actions, sessionId, t } = props
   const state: AuditUiState = useStore(snapshot => snapshot)
   const [open, setOpen] = useState(false)
+  const [expanded, setExpanded] = useState<Segment['key'] | null>(null)
   const panelId = useId()
+  const dockRef = useRef<HTMLSpanElement | null>(null)
   const controllerRef = useRef<AbortController | null>(null)
 
   const refresh = useCallback(() => {
@@ -103,7 +188,9 @@ export function ContextAuditRing(props: ContextAuditRingProps): ReactElement {
     const controller = new AbortController()
     controllerRef.current = controller
     actions.setState('loading', null)
-    void fetch(`${AUDIT_API}?session=${encodeURIComponent(sessionId)}`, { signal: controller.signal }).then(response => {
+    // `detail=developer` carries the per-entry receipt the breakdown lists.
+    const url = `${AUDIT_API}?session=${encodeURIComponent(sessionId)}&detail=developer`
+    void fetch(url, { signal: controller.signal }).then(response => {
       if (!response.ok) throw new Error(`audit ${response.status}`)
       return response.json() as Promise<{ ok: boolean; report: AuditUiState['report'] }>
     }).then(data => {
@@ -120,136 +207,210 @@ export function ContextAuditRing(props: ContextAuditRingProps): ReactElement {
     return () => controllerRef.current?.abort()
   }, [refresh])
 
+  // Dismiss on Escape or on any pointer landing outside the control.
   useEffect(() => {
     if (!open) return undefined
     const onKeyDown = (event: KeyboardEvent): void => { if (event.key === 'Escape') setOpen(false) }
+    const onPointerDown = (event: PointerEvent): void => {
+      const dock = dockRef.current
+      if (dock !== null && event.target instanceof Node && !dock.contains(event.target)) setOpen(false)
+    }
     document.addEventListener('keydown', onKeyDown)
-    return () => document.removeEventListener('keydown', onKeyDown)
+    // Capture phase: a click handled (and stopped) by page content still closes.
+    document.addEventListener('pointerdown', onPointerDown, true)
+    return () => {
+      document.removeEventListener('keydown', onKeyDown)
+      document.removeEventListener('pointerdown', onPointerDown, true)
+    }
   }, [open])
 
   const report = state.report
-  const instructions = report?.injected.instructions.totalTokens ?? 0
-  const skills = report?.injected.skills.catalogDescriptionTokens ?? 0
-  const schemas = report?.injected.tools.schemaTokens ?? 0
-  const resident = instructions + skills + schemas
-  const percent = resident / FULL_SCALE
-  const level = state.state === 'error' ? 'red' : healthTone(resident)
+  const segments = useMemo(() => report === null ? [] : buildSegments(report, t), [report, t])
+  const resident = segments.reduce((sum, segment) => sum + segment.tokens, 0)
+  const percent = Math.min(resident / FULL_SCALE, 1)
+  const level = state.state === 'error' ? 'red' : healthLevel(resident)
   const accent = TONE[level]
   const suggestions = report?.suggestions ?? []
-  const status = state.state === 'error' ? 'Audit failed' : suggestions.length ? 'Review' : 'Healthy'
+  const status = state.state === 'error'
+    ? t('cd.error')
+    : level === 'red' ? t('cd.heavy') : suggestions.length > 0 ? t('cd.review') : t('cd.healthy')
+  const statusHint = level === 'red'
+    ? t('cd.heavyHint')
+    : suggestions.length > 0 ? t('cd.reviewHint') : t('cd.healthyHint')
 
-  return <span data-context-doctor style={dockStyle}>
-    <button type="button" onClick={() => setOpen(value => !value)} title="Context Doctor" aria-label="Context Doctor" aria-expanded={open} aria-controls={panelId} style={triggerStyle}>
-      <span style={{ color: accent, display: 'inline-flex' }}><PulseIcon size={17} /></span>
-      <span style={triggerLabelStyle}>Context Doctor</span>
-      <span aria-hidden="true" style={{ ...triggerStatusStyle, background: accent }} />
+  const updated = state.refreshedAt === null ? '—' : (() => {
+    const seconds = Math.max(0, Math.round((Date.now() - state.refreshedAt) / 1000))
+    if (seconds < 10) return t('cd.justNow')
+    if (seconds < 60) return t('cd.secondsAgo', { n: seconds })
+    return t('cd.minutesAgo', { n: Math.round(seconds / 60) })
+  })()
+
+  return <span ref={dockRef} data-context-doctor style={dockStyle}>
+    <button type="button" onClick={() => setOpen(value => !value)} title={t('cd.hint')} aria-label={t('cd.title')}
+      aria-expanded={open} aria-controls={panelId} style={triggerStyle}>
+      <span style={{ color: accent, display: 'inline-flex' }}><PulseIcon size={15} /></span>
+      <span style={triggerLabelStyle}>{t('cd.title')}</span>
+      <span aria-hidden="true" style={{ ...triggerDotStyle, background: accent }} />
     </button>
 
-    {open && <section id={panelId} role="dialog" aria-label="Context Doctor" style={panelStyle}>
+    {open && <section id={panelId} role="dialog" aria-label={t('cd.title')} style={panelStyle}>
       <header style={headerStyle}>
-        <span style={{ color: TONE.mint, display: 'inline-flex' }}><PulseIcon size={31} /></span>
-        <div>
-          <h2 style={titleStyle}>Context Doctor</h2>
-          <p style={subtitleStyle}>Context budget audit</p>
+        <span style={{ color: accent, display: 'inline-flex' }}><PulseIcon size={17} /></span>
+        <div style={{ minWidth: 0 }}>
+          <h2 style={titleStyle}>{t('cd.title')}</h2>
+          <p style={subtitleStyle}>{t('cd.subtitle')}</p>
         </div>
+        <span style={{ ...statusPillStyle, color: accent, borderColor: accent }}>{status}</span>
       </header>
 
-      {state.state === 'error' && <div style={errorStyle}>Audit failed: {state.error}</div>}
+      {state.state === 'error' && <p style={errorStyle}>{t('cd.error')}: {state.error}</p>}
 
-      {report === null && state.state !== 'error' ? <div style={emptyStyle}>{state.state === 'loading' ? 'Auditing context…' : 'No audit data yet.'}</div> : report !== null && <>
-        <div style={summaryStyle}>
-          <div style={gaugeColumnStyle}>
-            <div style={gaugeWrapStyle}>
-              <BudgetRing percent={percent} color={accent} />
-              <div style={gaugeCaptionStyle}>
-                <strong style={{ color: accent, fontSize: 37, fontWeight: 460 }}>{Math.round(Math.min(percent, 1) * 100)}%</strong>
-                <span style={gaugeGuideStyle}>of 50k</span>
+      {report === null && state.state !== 'error'
+        ? <p style={emptyStyle}>{state.state === 'loading' ? t('cd.loading') : t('cd.emptyState')}</p>
+        : report !== null && <>
+          <div style={summaryStyle}>
+            <div style={summaryHeadStyle}>
+              <div style={{ display: 'flex', alignItems: 'baseline', gap: 7, minWidth: 0 }}>
+                <strong style={totalStyle}>{formatK(resident)}</strong>
+                <span style={totalUnitStyle}>{t('cd.tokens')}</span>
               </div>
+              <span style={budgetStyle}>
+                {Math.round(percent * 100)}% · {t('cd.ofBudget', { budget: formatK(FULL_SCALE) })}
+              </span>
             </div>
-            <span style={totalLabelStyle}>Total</span>
-            <strong style={totalStyle}>{formatK(resident)}</strong>
-            <span style={tokensStyle}>tokens</span>
+            <div style={barTrackStyle} aria-hidden="true">
+              {resident > 0 && segments.filter(segment => segment.tokens > 0).map(segment =>
+                <span key={segment.key} style={{
+                  width: `${(segment.tokens / resident) * 100}%`,
+                  background: segment.color,
+                  height: '100%',
+                }} />)}
+            </div>
+            <span style={totalCaptionStyle}>{t('cd.total')}</span>
           </div>
-          <div style={metricsStyle}>
-            <MetricRow type="instructions" label="Instruction chain" value={instructions} ratio={resident === 0 ? 0 : instructions / resident} color={TONE.mint} />
-            <MetricRow type="skills" label="Skills catalog" value={skills} ratio={resident === 0 ? 0 : skills / resident} color={TONE.mint} />
-            <MetricRow type="tools" label="Tool schemas" value={schemas} ratio={resident === 0 ? 0 : schemas / resident} color={TONE.amber} />
-            <MetricRow type="mcp" label="MCP tools" value={report.injected.tools.mcp.totalTokens} ratio={resident === 0 ? 0 : report.injected.tools.mcp.totalTokens / resident} color={TONE.mint} />
-          </div>
-        </div>
 
-        <div style={healthStyle}>
-          <span style={{ color: accent, display: 'inline-flex' }}><CheckIcon /></span>
-          <div>
+          <ul style={listStyle}>
+            {segments.map(segment => {
+              const share = resident === 0 ? 0 : segment.tokens / resident
+              const isOpen = expanded === segment.key
+              const canExpand = segment.detail !== null
+              return <li key={segment.key} style={listItemStyle}>
+                <button type="button" disabled={!canExpand}
+                  onClick={() => setExpanded(current => current === segment.key ? null : segment.key)}
+                  aria-expanded={isOpen}
+                  title={canExpand ? (isOpen ? t('cd.collapse') : t('cd.expand')) : t('cd.noDetail')}
+                  style={{ ...rowStyle, cursor: canExpand ? 'pointer' : 'default', opacity: canExpand ? 1 : 0.62 }}>
+                  <span style={{ ...chevronStyle, color: canExpand ? TONE.quiet : 'transparent' }}>
+                    <ChevronIcon open={isOpen} />
+                  </span>
+                  <span aria-hidden="true" style={{ ...swatchStyle, background: segment.color }} />
+                  <span style={{ minWidth: 0 }}>
+                    <span style={rowLabelStyle}>{segment.label}</span>
+                    <span style={rowSubStyle}>{segment.sub}</span>
+                  </span>
+                  <span style={rowTokensStyle}>{formatK(segment.tokens)}</span>
+                  <span style={rowShareStyle}>{Math.round(share * 100)}%</span>
+                </button>
+
+                {isOpen && segment.detail !== null && <div style={detailStyle}>
+                  <span style={detailTitleStyle}>{segment.detail.title}</span>
+                  <ol style={detailListStyle}>
+                    {segment.detail.rows.slice(0, DETAIL_LIMIT).map(row => {
+                      const rowShare = segment.tokens === 0 ? 0 : row.tokens / segment.tokens
+                      return <li key={row.name} style={detailRowStyle} title={row.name}>
+                        <span style={detailNameStyle}>{row.name}</span>
+                        <span style={detailBarStyle}>
+                          <span style={{ display: 'block', width: `${Math.max(rowShare * 100, 2)}%`, height: '100%', background: segment.color, borderRadius: 2 }} />
+                        </span>
+                        <span style={detailTokensStyle}>{formatK(row.tokens)}</span>
+                      </li>
+                    })}
+                  </ol>
+                  {segment.detail.rows.length > DETAIL_LIMIT
+                    && <span style={detailMoreStyle}>{t('cd.more', { n: segment.detail.rows.length - DETAIL_LIMIT })}</span>}
+                  {segment.detail.note !== undefined && <span style={detailNoteStyle}>{segment.detail.note}</span>}
+                </div>}
+              </li>
+            })}
+          </ul>
+
+          <div style={healthStyle}>
             <strong style={{ ...healthTitleStyle, color: accent }}>{status}</strong>
-            <p style={healthCopyStyle}>{suggestions.length ? 'Some context entries are worth reviewing before they become expensive.' : 'Your context is efficient and remains within the recommended budget.'}</p>
+            <p style={healthCopyStyle}>{statusHint}</p>
+            {suggestions.length > 0 && <ol style={suggestionListStyle}>
+              {suggestions.slice(0, 3).map(suggestion => {
+                const tone = suggestion.severity === 'high' ? TONE.red : suggestion.severity === 'medium' ? TONE.amber : TONE.mint
+                return <li key={suggestion.text} style={suggestionStyle}>
+                  <span aria-hidden="true" style={{ ...suggestionDotStyle, background: tone }} />
+                  <span style={suggestionCopyStyle}>{suggestion.text}</span>
+                </li>
+              })}
+            </ol>}
           </div>
-        </div>
-
-        {suggestions.length > 0 && <div style={suggestionsStyle}>
-          <h3 style={suggestionsTitleStyle}>Suggestions</h3>
-          <ol style={suggestionListStyle}>{suggestions.slice(0, 3).map((suggestion, index) => {
-            const tone = suggestion.severity === 'high' ? TONE.red : suggestion.severity === 'medium' ? TONE.amber : TONE.mint
-            return <li key={`${suggestion.severity}-${suggestion.text}`} style={suggestionStyle}>
-              <span style={{ ...suggestionIndexStyle, color: tone, borderColor: tone }}>{index + 1}</span>
-              <span style={suggestionCopyStyle}><strong style={{ color: tone, fontWeight: 520 }}>Review audit finding</strong><small>{suggestion.text}</small></span>
-              <span aria-hidden="true" style={arrowStyle}>›</span>
-            </li>
-          })}</ol>
-        </div>}
-      </>}
+        </>}
 
       <footer style={footerStyle}>
-        <span style={updatedStyle}>Last updated: {updatedLabel(state.refreshedAt)}</span>
-        <button type="button" onClick={refresh} disabled={state.state === 'loading'} style={refreshStyle}><RefreshIcon />Refresh</button>
+        <span style={updatedStyle}>{t('cd.updated', { when: updated })}</span>
+        <button type="button" onClick={refresh} disabled={state.state === 'loading'} style={refreshStyle}>
+          <RefreshIcon />{t('cd.refresh')}
+        </button>
       </footer>
     </section>}
   </span>
 }
 
-function MetricRow({ type, label, value, ratio, color }: { type: 'instructions' | 'skills' | 'tools' | 'mcp'; label: string; value: number; ratio: number; color: string }): ReactElement {
-  return <div style={metricRowStyle}>
-    <span style={{ ...metricIconStyle, color }}><MetricIcon type={type} /></span>
-    <span style={metricLabelStyle}>{label}</span>
-    <span style={metricValueStyle}>{formatK(value)}</span>
-    <span style={{ ...metricPercentStyle, color }}>{Math.round(ratio * 100)}%</span>
-  </div>
-}
-
 const dockStyle: CSSProperties = { display: 'inline-flex', alignItems: 'center', position: 'relative', fontFamily: MONO }
-const triggerStyle: CSSProperties = { display: 'inline-flex', alignItems: 'center', gap: 7, minHeight: 33, padding: '5px 10px', color: TONE.text, background: TONE.panel, border: `1px solid ${TONE.border}`, borderRadius: 7, cursor: 'pointer', fontFamily: MONO, fontWeight: 430 }
+const triggerStyle: CSSProperties = { display: 'inline-flex', alignItems: 'center', gap: 6, minHeight: 31, padding: '4px 9px', color: TONE.text, background: TONE.raised, border: `1px solid ${TONE.border}`, borderRadius: 7, cursor: 'pointer', fontFamily: MONO, fontWeight: 430 }
 const triggerLabelStyle: CSSProperties = { color: TONE.text, fontSize: 12, fontWeight: 430, whiteSpace: 'nowrap' }
-const triggerStatusStyle: CSSProperties = { width: 8, height: 8, marginLeft: 2, borderRadius: 99, boxShadow: '0 0 0 3px color-mix(in srgb, currentColor 8%, transparent)' }
-const panelStyle: CSSProperties = { position: 'absolute', zIndex: 1000, right: 0, bottom: 'calc(100% + 14px)', width: 560, maxWidth: 'calc(100vw - 24px)', maxHeight: 'calc(100vh - 101px)', overflowX: 'hidden', overflowY: 'auto', color: TONE.text, background: TONE.canvas, border: `1px solid ${TONE.borderStrong}`, borderRadius: 15, boxShadow: '0 24px 62px rgba(3, 8, 18, 0.38)', textAlign: 'left', fontFamily: MONO, fontWeight: 400 }
-const headerStyle: CSSProperties = { display: 'grid', gridTemplateColumns: '34px 1fr', alignItems: 'center', columnGap: 14, padding: '24px 28px 22px', borderBottom: `1px solid ${TONE.border}` }
-const titleStyle: CSSProperties = { margin: 0, color: TONE.text, fontFamily: MONO, fontSize: 23, fontWeight: 460, letterSpacing: '-0.025em', lineHeight: 1.1 }
-const subtitleStyle: CSSProperties = { margin: '10px 0 0', color: TONE.muted, fontFamily: MONO, fontSize: 14, fontWeight: 400, lineHeight: 1.2 }
-const errorStyle: CSSProperties = { margin: '14px 28px 0', color: TONE.red, fontSize: 13, lineHeight: 1.45 }
-const emptyStyle: CSSProperties = { padding: '50px 28px', color: TONE.muted, fontSize: 14, textAlign: 'center' }
-const summaryStyle: CSSProperties = { display: 'grid', gridTemplateColumns: '42% 58%', minHeight: 305, borderBottom: `1px solid ${TONE.border}` }
-const gaugeColumnStyle: CSSProperties = { display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', padding: '25px 18px', borderRight: `1px solid ${TONE.border}` }
-const gaugeWrapStyle: CSSProperties = { position: 'relative', width: 188, height: 188, display: 'grid', placeItems: 'center' }
-const gaugeCaptionStyle: CSSProperties = { position: 'absolute', inset: 0, display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', gap: 7 }
-const gaugeGuideStyle: CSSProperties = { color: TONE.muted, fontSize: 13, fontWeight: 400 }
-const totalLabelStyle: CSSProperties = { marginTop: 21, color: TONE.muted, fontSize: 15, fontWeight: 400 }
-const totalStyle: CSSProperties = { marginTop: 8, color: TONE.text, fontSize: 34, fontWeight: 440, lineHeight: 1, letterSpacing: '-0.045em', fontVariantNumeric: 'tabular-nums' }
-const tokensStyle: CSSProperties = { marginTop: 9, color: TONE.muted, fontSize: 15, fontWeight: 400 }
-const metricsStyle: CSSProperties = { display: 'flex', flexDirection: 'column', justifyContent: 'center', gap: 17, padding: '26px 30px' }
-const metricRowStyle: CSSProperties = { display: 'grid', gridTemplateColumns: '43px minmax(0, 1fr) auto 39px', alignItems: 'center', columnGap: 10, minHeight: 55 }
-const metricIconStyle: CSSProperties = { display: 'grid', width: 41, height: 41, placeItems: 'center', border: `1px solid ${TONE.border}`, borderRadius: 8 }
-const metricLabelStyle: CSSProperties = { overflow: 'hidden', color: TONE.text, fontSize: 15, fontWeight: 420, textOverflow: 'ellipsis', whiteSpace: 'nowrap' }
-const metricValueStyle: CSSProperties = { color: TONE.text, fontSize: 15, fontWeight: 420, fontVariantNumeric: 'tabular-nums', whiteSpace: 'nowrap' }
-const metricPercentStyle: CSSProperties = { textAlign: 'right', fontSize: 15, fontWeight: 430, fontVariantNumeric: 'tabular-nums' }
-const healthStyle: CSSProperties = { display: 'grid', gridTemplateColumns: '42px 1fr', alignItems: 'start', columnGap: 12, padding: '23px 29px 25px', borderBottom: `1px solid ${TONE.border}` }
-const healthTitleStyle: CSSProperties = { display: 'block', marginTop: 1, fontSize: 17, fontWeight: 470 }
-const healthCopyStyle: CSSProperties = { margin: '8px 0 0', color: TONE.muted, fontSize: 14, fontWeight: 400, lineHeight: 1.5 }
-const suggestionsStyle: CSSProperties = { padding: '23px 29px 22px', borderBottom: `1px solid ${TONE.border}` }
-const suggestionsTitleStyle: CSSProperties = { margin: '0 0 15px', color: TONE.text, fontSize: 16, fontWeight: 440 }
-const suggestionListStyle: CSSProperties = { display: 'flex', flexDirection: 'column', gap: 10, margin: 0, padding: 0, listStyle: 'none' }
-const suggestionStyle: CSSProperties = { display: 'grid', gridTemplateColumns: '33px minmax(0, 1fr) 15px', alignItems: 'center', columnGap: 12, padding: '11px 13px', background: TONE.row, border: `1px solid ${TONE.border}`, borderRadius: 9 }
-const suggestionIndexStyle: CSSProperties = { display: 'grid', width: 29, height: 29, placeItems: 'center', border: '1px solid', borderRadius: 99, fontSize: 14, fontWeight: 460 }
-const suggestionCopyStyle: CSSProperties = { display: 'flex', flexDirection: 'column', minWidth: 0, gap: 4, fontSize: 14, lineHeight: 1.35 }
-const arrowStyle: CSSProperties = { color: TONE.text, fontSize: 28, fontWeight: 300, lineHeight: 1 }
-const footerStyle: CSSProperties = { display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 12, padding: '19px 29px 20px' }
-const updatedStyle: CSSProperties = { color: TONE.quiet, fontSize: 13, fontWeight: 400, fontVariantNumeric: 'tabular-nums' }
-const refreshStyle: CSSProperties = { display: 'inline-flex', alignItems: 'center', gap: 9, padding: 0, color: TONE.blue, background: 'transparent', border: 0, cursor: 'pointer', fontFamily: MONO, fontSize: 15, fontWeight: 430 }
+const triggerDotStyle: CSSProperties = { width: 7, height: 7, marginLeft: 1, borderRadius: 99 }
+
+const panelStyle: CSSProperties = { position: 'absolute', zIndex: 1000, right: 0, bottom: 'calc(100% + 12px)', width: 428, maxWidth: 'calc(100vw - 24px)', maxHeight: 'min(70vh, 620px)', overflowX: 'hidden', overflowY: 'auto', color: TONE.text, background: TONE.canvas, border: `1px solid ${TONE.borderStrong}`, borderRadius: 12, boxShadow: '0 18px 44px rgba(3, 8, 18, 0.34)', textAlign: 'left', fontFamily: MONO, fontWeight: 400 }
+const headerStyle: CSSProperties = { display: 'grid', gridTemplateColumns: '20px minmax(0, 1fr) auto', alignItems: 'center', columnGap: 10, padding: '14px 16px 13px', borderBottom: `1px solid ${TONE.border}` }
+const titleStyle: CSSProperties = { margin: 0, color: TONE.text, fontFamily: MONO, fontSize: 14, fontWeight: 480, letterSpacing: '-0.01em', lineHeight: 1.2 }
+const subtitleStyle: CSSProperties = { margin: '3px 0 0', color: TONE.muted, fontFamily: MONO, fontSize: 11.5, fontWeight: 400, lineHeight: 1.2 }
+const statusPillStyle: CSSProperties = { padding: '3px 9px', border: '1px solid', borderRadius: 99, fontSize: 11, fontWeight: 460, whiteSpace: 'nowrap' }
+
+const errorStyle: CSSProperties = { margin: '12px 16px 0', color: TONE.red, fontSize: 12, lineHeight: 1.45 }
+const emptyStyle: CSSProperties = { margin: 0, padding: '34px 16px', color: TONE.muted, fontSize: 12.5, textAlign: 'center' }
+
+const summaryStyle: CSSProperties = { padding: '15px 16px 14px', borderBottom: `1px solid ${TONE.border}` }
+const summaryHeadStyle: CSSProperties = { display: 'flex', alignItems: 'baseline', justifyContent: 'space-between', gap: 12 }
+const totalStyle: CSSProperties = { color: TONE.text, fontSize: 27, fontWeight: 460, lineHeight: 1, letterSpacing: '-0.035em', fontVariantNumeric: 'tabular-nums' }
+const totalUnitStyle: CSSProperties = { color: TONE.muted, fontSize: 12, fontWeight: 400 }
+const budgetStyle: CSSProperties = { color: TONE.muted, fontSize: 11.5, fontWeight: 400, fontVariantNumeric: 'tabular-nums', whiteSpace: 'nowrap' }
+const barTrackStyle: CSSProperties = { display: 'flex', gap: 2, height: 7, margin: '12px 0 0', overflow: 'hidden', background: TONE.row, borderRadius: 99 }
+const totalCaptionStyle: CSSProperties = { display: 'block', marginTop: 9, color: TONE.quiet, fontSize: 11, fontWeight: 400 }
+
+const listStyle: CSSProperties = { margin: 0, padding: '5px 8px 7px', listStyle: 'none', borderBottom: `1px solid ${TONE.border}` }
+const listItemStyle: CSSProperties = { listStyle: 'none' }
+const rowStyle: CSSProperties = { display: 'grid', width: '100%', gridTemplateColumns: '16px 9px minmax(0, 1fr) auto 38px', alignItems: 'center', columnGap: 9, padding: '9px 8px', color: TONE.text, background: 'transparent', border: 0, borderRadius: 7, textAlign: 'left', fontFamily: MONO }
+const chevronStyle: CSSProperties = { display: 'inline-flex', justifyContent: 'center' }
+const swatchStyle: CSSProperties = { width: 9, height: 9, borderRadius: 3 }
+const rowLabelStyle: CSSProperties = { display: 'block', overflow: 'hidden', color: TONE.text, fontSize: 12.5, fontWeight: 440, textOverflow: 'ellipsis', whiteSpace: 'nowrap' }
+const rowSubStyle: CSSProperties = { display: 'block', marginTop: 2, overflow: 'hidden', color: TONE.quiet, fontSize: 11, fontWeight: 400, textOverflow: 'ellipsis', whiteSpace: 'nowrap' }
+const rowTokensStyle: CSSProperties = { color: TONE.text, fontSize: 12.5, fontWeight: 440, fontVariantNumeric: 'tabular-nums', whiteSpace: 'nowrap' }
+const rowShareStyle: CSSProperties = { color: TONE.muted, fontSize: 12, fontWeight: 430, fontVariantNumeric: 'tabular-nums', textAlign: 'right' }
+
+const detailStyle: CSSProperties = { display: 'flex', flexDirection: 'column', gap: 7, margin: '0 8px 9px 33px', padding: '10px 11px', background: TONE.row, borderRadius: 8 }
+// No uppercasing here: the dictionaries mix CJK with Latin product nouns, and
+// `text-transform` would shout the Latin half ("占用最大的 SCHEMA").
+const detailTitleStyle: CSSProperties = { color: TONE.quiet, fontSize: 10.5, fontWeight: 460 }
+const detailListStyle: CSSProperties = { display: 'flex', flexDirection: 'column', gap: 6, margin: 0, padding: 0, listStyle: 'none' }
+const detailRowStyle: CSSProperties = { display: 'grid', gridTemplateColumns: 'minmax(0, 1fr) 54px 42px', alignItems: 'center', columnGap: 9 }
+const detailNameStyle: CSSProperties = { overflow: 'hidden', color: TONE.muted, fontSize: 11.5, fontWeight: 400, textOverflow: 'ellipsis', whiteSpace: 'nowrap' }
+const detailBarStyle: CSSProperties = { height: 4, background: TONE.borderStrong, borderRadius: 2, overflow: 'hidden' }
+const detailTokensStyle: CSSProperties = { color: TONE.text, fontSize: 11.5, fontWeight: 430, fontVariantNumeric: 'tabular-nums', textAlign: 'right' }
+const detailMoreStyle: CSSProperties = { color: TONE.quiet, fontSize: 11, fontWeight: 400 }
+const detailNoteStyle: CSSProperties = { marginTop: 1, color: TONE.amber, fontSize: 11, fontWeight: 400, lineHeight: 1.4 }
+
+const healthStyle: CSSProperties = { padding: '13px 16px 14px', borderBottom: `1px solid ${TONE.border}` }
+const healthTitleStyle: CSSProperties = { display: 'block', fontSize: 12.5, fontWeight: 470 }
+const healthCopyStyle: CSSProperties = { margin: '5px 0 0', color: TONE.muted, fontSize: 11.5, fontWeight: 400, lineHeight: 1.5 }
+const suggestionListStyle: CSSProperties = { display: 'flex', flexDirection: 'column', gap: 6, margin: '11px 0 0', padding: 0, listStyle: 'none' }
+const suggestionStyle: CSSProperties = { display: 'grid', gridTemplateColumns: '7px minmax(0, 1fr)', alignItems: 'start', columnGap: 9 }
+const suggestionDotStyle: CSSProperties = { width: 6, height: 6, marginTop: 5, borderRadius: 99 }
+const suggestionCopyStyle: CSSProperties = { color: TONE.muted, fontSize: 11.5, fontWeight: 400, lineHeight: 1.45 }
+
+const footerStyle: CSSProperties = { display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 12, padding: '11px 16px 12px' }
+const updatedStyle: CSSProperties = { color: TONE.quiet, fontSize: 11, fontWeight: 400, fontVariantNumeric: 'tabular-nums' }
+const refreshStyle: CSSProperties = { display: 'inline-flex', alignItems: 'center', gap: 6, padding: 0, color: TONE.blue, background: 'transparent', border: 0, cursor: 'pointer', fontFamily: MONO, fontSize: 12, fontWeight: 440 }
